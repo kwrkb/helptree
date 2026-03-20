@@ -13,6 +13,8 @@ var (
 	sectionHeaderRe = regexp.MustCompile(`^(?:The\s+)?([A-Za-z][\w\s()]*[\w)])\s*:`)
 	// Matches a subcommand line: "  command-name    Description text" (spaces or tabs)
 	subcommandRe = regexp.MustCompile(`^\s+(\S+)\s{2,}(.+)`)
+	// Matches "  command - description" style (apt, systemctl, etc.)
+	dashSepSubcmdRe = regexp.MustCompile(`^\s{2,}([a-zA-Z][a-zA-Z0-9_-]*)\s+[-–—]\s+(.+)`)
 	// Matches option with short and long: "  -v, --verbose string   Description"
 	optShortLongRe = regexp.MustCompile(`^\s{2,}(-\w),\s+(--[\w-]+)(?:\s+(\S+))?\s{2,}(.+)`)
 	// Matches option with long only: "      --verbose string   Description"
@@ -160,14 +162,9 @@ func Parse(name, helpText string) *model.Node {
 
 		switch currentSection {
 		case "commands":
-			if m := subcommandRe.FindStringSubmatch(line); m != nil {
-				child := &model.Node{
-					Name:        m[1],
-					Description: strings.TrimSpace(m[2]),
-				}
+			if child, col := parseSubcommandLine(line); child != nil {
 				node.Children = append(node.Children, child)
-				descStart := strings.Index(line, m[2])
-				last.set(&child.Description, descStart)
+				last.set(&child.Description, col)
 			} else if last.appendContinuation(line) {
 				// wrapped description line consumed
 			} else if m := bareSubcommandRe.FindStringSubmatch(line); m != nil {
@@ -216,18 +213,13 @@ func Parse(name, helpText string) *model.Node {
 			}
 
 			// Try subcommand pattern (with description)
-			if m := subcommandRe.FindStringSubmatch(line); m != nil {
+			if child, col := parseSubcommandLine(line); child != nil {
 				consecutiveSubcmdHits++
 				if consecutiveSubcmdHits >= inferThreshold {
 					currentSection = "commands"
 				}
-				child := &model.Node{
-					Name:        m[1],
-					Description: strings.TrimSpace(m[2]),
-				}
 				node.Children = append(node.Children, child)
-				descStart := strings.Index(line, m[2])
-				last.set(&child.Description, descStart)
+				last.set(&child.Description, col)
 			} else if m := bareSubcommandRe.FindStringSubmatch(line); m != nil {
 				// Bare command name with no description
 				consecutiveSubcmdHits++
@@ -291,6 +283,29 @@ func categorizeSection(header string) string {
 	default:
 		return "other"
 	}
+}
+
+// parseSubcommandLine tries to parse a line as a subcommand.
+// Tries multiple formats: "  cmd    desc", "  cmd - desc".
+// Returns the node and description start column, or nil if no match.
+func parseSubcommandLine(line string) (*model.Node, int) {
+	// Standard: "  command    Description text"
+	if m := subcommandRe.FindStringSubmatch(line); m != nil {
+		child := &model.Node{
+			Name:        m[1],
+			Description: strings.TrimSpace(m[2]),
+		}
+		return child, strings.Index(line, m[2])
+	}
+	// Dash-separated: "  command - Description text"
+	if m := dashSepSubcmdRe.FindStringSubmatch(line); m != nil {
+		child := &model.Node{
+			Name:        m[1],
+			Description: strings.TrimSpace(m[2]),
+		}
+		return child, strings.Index(line, m[2])
+	}
+	return nil, 0
 }
 
 // parseOptionLine tries to parse a line as an option definition.
