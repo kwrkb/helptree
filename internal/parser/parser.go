@@ -19,6 +19,12 @@ var (
 	optLongOnlyRe = regexp.MustCompile(`^\s{2,}(--[\w-]+)(?:\s+(\S+))?\s{2,}(.+)`)
 	// Matches option with short only: "  -v   Description"
 	optShortOnlyRe = regexp.MustCompile(`^\s{2,}(-\w)(?:\s+(\S+))?\s{2,}(.+)`)
+	// Matches option flag on its own line (description on next line):
+	//   "  -v, --verbose"  or  "  --output <file>"  or  "  -p, --plain..."
+	optBareShortLongRe = regexp.MustCompile(`^\s{2,}(-\w),\s+(--[\w-]+)(?:\s+(\S+))?\s*$`)
+	optBareLongRe      = regexp.MustCompile(`^\s{2,}(--[\w-]+)(?:\s+(\S+))?\s*$`)
+	// Matches comma-separated command list: "    access, adduser, audit, bugs, ..."
+	commaSepListRe = regexp.MustCompile(`^\s{2,}(\w[\w-]*(?:,\s*\w[\w-]*){2,}),?\s*$`)
 	// Matches a bare subcommand name with no description: "  run"
 	bareSubcommandRe = regexp.MustCompile(`^\s+([a-zA-Z][a-zA-Z0-9_-]*)\s*$`)
 	// Matches usage line
@@ -62,9 +68,18 @@ func (a *descAppender) appendContinuation(line string) bool {
 	if strings.HasPrefix(trimmed, "-") {
 		return false
 	}
+	// col == 0 means the previous item had no inline description (bare flag).
+	// Accept any indented non-flag line as the description.
+	if a.col == 0 && indent >= 4 {
+		if *a.desc == "" {
+			*a.desc = trimmed
+		} else {
+			*a.desc += " " + trimmed
+		}
+		return true
+	}
 	// Heuristic: continuation lines are typically indented at or beyond
 	// the description column of the previous item, or deeply indented.
-	// We accept lines indented >= the description start col, or >= 20 spaces.
 	if a.col > 0 && indent >= a.col {
 		*a.desc += " " + trimmed
 		return true
@@ -156,9 +171,13 @@ func Parse(name, helpText string) *model.Node {
 			} else if last.appendContinuation(line) {
 				// wrapped description line consumed
 			} else if m := bareSubcommandRe.FindStringSubmatch(line); m != nil {
-				// Command name with no description
 				child := &model.Node{Name: m[1]}
 				node.Children = append(node.Children, child)
+				last.reset()
+			} else if names := parseCommaSeparatedList(line); len(names) > 0 {
+				for _, name := range names {
+					node.Children = append(node.Children, &model.Node{Name: name})
+				}
 				last.reset()
 			} else {
 				last.reset()
@@ -168,6 +187,10 @@ func Parse(name, helpText string) *model.Node {
 			if opt, col, ok := parseOptionLine(line); ok {
 				node.Options = append(node.Options, opt)
 				last.set(&node.Options[len(node.Options)-1].Description, col)
+			} else if opt, ok := parseBareOptionLine(line); ok {
+				// Flag on its own line — description will come on next line
+				node.Options = append(node.Options, opt)
+				last.set(&node.Options[len(node.Options)-1].Description, 0)
 			} else if last.appendContinuation(line) {
 				// wrapped description line consumed
 			} else {
@@ -299,6 +322,44 @@ func parseOptionLine(line string) (model.Option, int, bool) {
 		}, m[6], true
 	}
 	return model.Option{}, 0, false
+}
+
+// parseBareOptionLine matches a flag on its own line with no inline description.
+// e.g. "  -v, --verbose" or "  --output <file>" or "  -p, --plain..."
+func parseBareOptionLine(line string) (model.Option, bool) {
+	if m := optBareShortLongRe.FindStringSubmatch(line); m != nil {
+		return model.Option{
+			Short: m[1],
+			Long:  m[2],
+			Arg:   classifyArg(m[3]),
+		}, true
+	}
+	if m := optBareLongRe.FindStringSubmatch(line); m != nil {
+		return model.Option{
+			Long: m[1],
+			Arg:  classifyArg(m[2]),
+		}, true
+	}
+	return model.Option{}, false
+}
+
+// parseCommaSeparatedList extracts command names from comma-separated lists.
+// e.g. "    access, adduser, audit, bugs, cache, ci, completion,"
+func parseCommaSeparatedList(line string) []string {
+	if !commaSepListRe.MatchString(line) {
+		return nil
+	}
+	trimmed := strings.TrimSpace(line)
+	trimmed = strings.TrimRight(trimmed, ",")
+	parts := strings.Split(trimmed, ",")
+	var names []string
+	for _, p := range parts {
+		name := strings.TrimSpace(p)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // classifyArg determines if a token after a flag is an argument type or part of description.
