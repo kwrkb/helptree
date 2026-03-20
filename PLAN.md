@@ -87,6 +87,58 @@ helptree/
 - `cp --help`, `mv --help` 等で GNU coreutils の長いオプション説明行がサブコマンドとして誤認される
 - オプション行の優先度を上げるか、coreutils 特有のパターンを検出する必要がある
 
+### 正規表現パーサーの限界 (GitHub Issue #1)
+- 現在 18 個の正規表現 + 複数のフォールバック関数で構成。新しいヘルプ形式に遭遇するたびに正規表現を追加する「いたちごっこ」になっている
+- 正規表現間の優先順位が暗黙的で、変更時のリグレッションリスクが高い
+- glab の space-separated flags (`-h --help  Desc`) のように既存パターンのどれにも当てはまらない形式がまだ残っている
+- **検討すべき代替アプローチ**:
+  - **LLM パース**: 未知フォーマットに強いが、レイテンシ・コスト・オフライン不可の問題
+  - **カラム検出**: 空白カラム分布からテーブル構造を推定。フォーマット非依存だが自由形式テキストとの区別が難しい
+  - **ハイブリッド**: 既知フォーマットは正規表現で高速処理、未知のみ LLM フォールバック
+- **方針**: 現時点ではスモークテスト 30+ CLI で PASS しており実用十分。中期的にアーキテクチャ見直しを検討
+
+## Phase 4: 未対応ヘルプ形式への対応
+
+スモークテストで検出した5つの未対応形式を修正し、パーサーのカバレッジを拡大する。
+
+### 4-1: 全大文字セクションヘッダー (glab) ✅
+
+`uppercaseSectionRe` (`^\s+([A-Z][A-Z ]{3,}[A-Z])\s*$`) を追加。
+glab の 38+ サブコマンドをパース可能に。
+
+### 4-2: メタデータトークン付きサブコマンド行 (glab) ✅
+
+`subcommandWithMetaRe` (`^\s+([a-zA-Z][\w-]*)\s+[\[<].*\s{2,}(\S.+)$`) を追加。
+`alias [command] [--flags]   Desc` 形式をパース可能に。
+
+### 4-3: バイナリ名プレフィックス除去 (gemini) ✅
+
+`stripBinaryPrefix()` を追加。"commands" セクション内でルートコマンド名プレフィックスを除去。
+`gemini mcp → mcp` でサブコマンド認識。gemini children=5。
+
+### 4-4: コロン区切り短オプション (python3) ✅
+
+`colonSepShortOptRe` (`^(-[A-Za-z]{1,2})(?:\s+(\S+))?\s+:\s+(.+)`) を追加。
+python3 の `-b : desc` 形式をパース可能に。python3 options=14+。
+
+### 4-5: カラム0始まりオプション (fvm) ✅
+
+`optShortLongRe`, `optBareShortLongRe` の先頭を `^\s{2,}` → `^\s*` に緩和。
+fvm options=3 (全オプション認識)。
+
+### 4-6: ブラケット圧縮オプション (npx) ✅
+
+`parseBracketOptions()` を追加。`bracketPipeOptRe` と `standaloneLongOptRe` で
+`[--pkg] [-c|--call]` 形式を抽出。npx options=5。
+
+### 検証
+
+各タスク完了時:
+```bash
+go test -v -count=1 ./internal/parser/ -run TestSmoke
+go test -v -count=1 ./...
+```
+
 ## 検証方法
 
 - 各フェーズのテスト: `go test ./...`

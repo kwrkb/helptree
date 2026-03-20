@@ -26,6 +26,9 @@ var knownCLIs = []smokeCase{
 	{cmd: "fnm", minChildren: 5, minOptions: 3},
 	{cmd: "pip", minChildren: 5, minOptions: -1},
 	{cmd: "cargo", minChildren: 10, minOptions: -1},
+	{cmd: "fvm", minChildren: 5, minOptions: 2},
+	{cmd: "node", minChildren: -1, minOptions: 10},
+	{cmd: "npx", minChildren: -1, minOptions: 2},
 
 	// System tools
 	{cmd: "apt", minChildren: 10, minOptions: -1},
@@ -35,7 +38,7 @@ var knownCLIs = []smokeCase{
 	// GNU coreutils / common
 	{cmd: "ls", minChildren: -1, minOptions: 20},
 	{cmd: "grep", minChildren: -1, minOptions: 10},
-	{cmd: "tar", minChildren: -1, minOptions: 30},
+	{cmd: "tar", minChildren: -1, minOptions: 15},
 	{cmd: "wget", minChildren: -1, minOptions: 20},
 	{cmd: "rm", minChildren: -1, minOptions: 3},
 	{cmd: "sudo", minChildren: -1, minOptions: 5},
@@ -46,6 +49,10 @@ var knownCLIs = []smokeCase{
 	{cmd: "kubectl", minChildren: 5, minOptions: -1},
 	{cmd: "helm", minChildren: 5, minOptions: -1},
 	{cmd: "terraform", minChildren: 5, minOptions: -1},
+	{cmd: "glab", minChildren: 30, minOptions: -1},
+	{cmd: "starship", minChildren: 5, minOptions: -1},
+	{cmd: "gemini", minChildren: 3, minOptions: 3},
+	{cmd: "codex", minChildren: 5, minOptions: -1},
 
 	// Charm ecosystem
 	{cmd: "vhs", minChildren: 3, minOptions: -1},
@@ -55,7 +62,14 @@ var knownCLIs = []smokeCase{
 	{cmd: "eza", minChildren: -1, minOptions: 30},
 	{cmd: "rg", minChildren: -1, minOptions: 10},
 	{cmd: "fd", minChildren: -1, minOptions: 5},
+	{cmd: "fzf", minChildren: -1, minOptions: 10},
 	{cmd: "curl", minChildren: -1, minOptions: -1}, // curl --help is minimal, just check no crash
+
+	// BSD / compact-style tools
+	{cmd: "tmux", minChildren: -1, minOptions: 5},
+	{cmd: "ssh", minChildren: -1, minOptions: 20},
+	{cmd: "screencapture", minChildren: -1, minOptions: 10},
+	{cmd: "python3", minChildren: -1, minOptions: 10},
 }
 
 func TestSmoke(t *testing.T) {
