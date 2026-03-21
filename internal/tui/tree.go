@@ -28,6 +28,20 @@ func flattenNode(node *model.Node, depth int, items *[]flatItem) {
 	}
 }
 
+// treeLineWidth returns the natural width of a tree line (without truncation).
+func treeLineWidth(item flatItem) int {
+	indent := 2 * item.depth // "  " per depth
+	prefix := 2              // "▶ " or "  "
+	name := item.node.Name
+	if item.depth > 0 {
+		parts := strings.Fields(name)
+		if len(parts) > 0 {
+			name = parts[len(parts)-1]
+		}
+	}
+	return indent + prefix + len(name)
+}
+
 // renderTreeLine renders a single tree line with indent and expand indicator.
 func renderTreeLine(item flatItem, selected bool, width int) string {
 	indent := strings.Repeat("  ", item.depth)
@@ -50,12 +64,7 @@ func renderTreeLine(item flatItem, selected bool, width int) string {
 		}
 	}
 
-	desc := ""
-	if item.node.Description != "" {
-		desc = " — " + item.node.Description
-	}
-
-	line := indent + prefix + name + desc
+	line := indent + prefix + name
 
 	// Truncate to width
 	if len(line) > width && width > 3 {

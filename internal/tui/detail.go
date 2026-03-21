@@ -7,8 +7,8 @@ import (
 	"github.com/kwrkb/helptree/internal/model"
 )
 
-// renderDetail renders the detail pane for the selected node with scroll support.
-func renderDetail(node *model.Node, width, height, scroll int) string {
+// renderSummary renders the summary pane (name, description, usage).
+func renderSummary(node *model.Node, width int) string {
 	if node == nil {
 		return ""
 	}
@@ -17,26 +17,43 @@ func renderDetail(node *model.Node, width, height, scroll int) string {
 
 	// Title
 	b.WriteString(fmt.Sprintf("╭─ %s ─╮\n", node.Name))
-	b.WriteString("\n")
 
 	// Description
 	if node.Description != "" {
+		b.WriteString("\n")
 		b.WriteString(wrapText(node.Description, width))
-		b.WriteString("\n\n")
+		b.WriteString("\n")
 	}
 
 	// Usage
 	if node.Usage != "" {
-		b.WriteString("Usage:\n")
-		b.WriteString("  " + node.Usage + "\n\n")
+		b.WriteString("\nUsage:\n")
+		for _, line := range strings.Split(node.Usage, "\n") {
+			b.WriteString("  " + line + "\n")
+		}
 	}
+
+	// Status
+	if !node.Loaded {
+		b.WriteString("\n  [Press Enter to load subcommands]")
+	}
+
+	return b.String()
+}
+
+// renderDetail renders the detail pane (subcommands and options) with scroll support.
+func renderDetail(node *model.Node, width, height, scroll int) string {
+	if node == nil {
+		return ""
+	}
+
+	var b strings.Builder
 
 	// Subcommands
 	if len(node.Children) > 0 {
 		b.WriteString(fmt.Sprintf("Subcommands (%d):\n", len(node.Children)))
 		for _, child := range node.Children {
 			name := child.Name
-			// Show just the last part of the name
 			if parts := strings.Fields(name); len(parts) > 0 {
 				name = parts[len(parts)-1]
 			}
@@ -62,27 +79,36 @@ func renderDetail(node *model.Node, width, height, scroll int) string {
 		}
 	}
 
-	// Status
-	if !node.Loaded {
-		b.WriteString("\n  [Press Enter to load subcommands]")
+	content := b.String()
+	if content == "" {
+		return ""
 	}
 
 	// Apply scroll
-	lines := strings.Split(b.String(), "\n")
-	if scroll > len(lines)-1 {
-		scroll = len(lines) - 1
+	lines := strings.Split(content, "\n")
+	totalLines := len(lines)
+	if scroll > totalLines-1 {
+		scroll = totalLines - 1
 	}
 	if scroll < 0 {
 		scroll = 0
 	}
-	if scroll > 0 && scroll < len(lines) {
+	if scroll > 0 && scroll < totalLines {
 		lines = lines[scroll:]
 	}
 
-	// Add scroll indicator
+	// Top scroll indicator
 	if scroll > 0 {
-		indicator := fmt.Sprintf("  ↑ %d more lines above", scroll)
+		indicator := fmt.Sprintf("  ↑ %d more lines above (Ctrl+U)", scroll)
 		lines = append([]string{indicator}, lines...)
+	}
+
+	// Bottom scroll indicator: trim to height and show remaining
+	if height > 0 && len(lines) > height {
+		remaining := len(lines) - height + 1 // +1 for indicator line itself
+		lines = lines[:height-1]
+		indicator := fmt.Sprintf("  ↓ %d more lines below (Ctrl+D)", remaining)
+		lines = append(lines, indicator)
 	}
 
 	return strings.Join(lines, "\n")
@@ -96,7 +122,6 @@ func wrapText(text string, width int) string {
 
 	var lines []string
 	for len(text) > width {
-		// Find the last space before width
 		idx := strings.LastIndex(text[:width], " ")
 		if idx <= 0 {
 			idx = width
