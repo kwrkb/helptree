@@ -32,6 +32,7 @@ func parseCommandBlock(node *model.Node, b *Block, rootName string) {
 	}
 
 	var lastDesc *string
+	dashSeparators := []string{" - ", " – ", " — "}
 
 	for _, line := range b.Lines {
 		var keyTrimmed, descTrimmed string
@@ -40,7 +41,7 @@ func parseCommandBlock(node *model.Node, b *Block, rootName string) {
 		// instead of using a fixed column (command names vary in length).
 		if b.Separator == SepDash {
 			stripped := strings.TrimSpace(stripBinaryPrefix(line, rootName))
-			for _, dashPat := range []string{" - ", " – ", " — "} {
+			for _, dashPat := range dashSeparators {
 				if idx := strings.Index(stripped, dashPat); idx >= 0 {
 					keyTrimmed = strings.TrimSpace(stripped[:idx])
 					descTrimmed = strings.TrimSpace(stripped[idx+len(dashPat):])
@@ -48,7 +49,11 @@ func parseCommandBlock(node *model.Node, b *Block, rootName string) {
 				}
 			}
 			if keyTrimmed == "" {
-				keyTrimmed = stripped
+				// No dash found — treat as continuation line
+				if lastDesc != nil && stripped != "" {
+					*lastDesc += " " + stripped
+				}
+				continue
 			}
 		} else {
 			// Split at description column first (before prefix stripping)

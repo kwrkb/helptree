@@ -71,18 +71,21 @@ type Model struct {
 	searchQuery  string
 	searchHits   map[int]bool // set of item indices that match
 	searchOrder  []int        // ordered list of hit indices for n/N navigation
-	loading bool
+	loading       bool
+	cachedTreeW   int // cached max tree line width, updated on reflatten
 }
 
 // New creates a new Model from a root node.
 func New(root *model.Node, rootCmd string) Model {
 	root.Expanded = true
 	items := flattenTree(root)
-	return Model{
+	m := Model{
 		root:    root,
 		rootCmd: rootCmd,
 		items:   items,
 	}
+	m.recalcTreeWidth()
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -113,6 +116,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			msg.target.Loaded = true // prevent retry on error
 		}
 		m.items = flattenTree(m.root)
+		m.recalcTreeWidth()
 		if m.searchQuery != "" {
 			m.rebuildSearchHits()
 		}
@@ -279,9 +283,21 @@ func (m *Model) nodeFullName(idx int) string {
 	return m.rootCmd
 }
 
+// recalcTreeWidth recalculates the cached max tree line width.
+func (m *Model) recalcTreeWidth() {
+	maxW := 0
+	for _, item := range m.items {
+		if w := treeLineWidth(item); w > maxW {
+			maxW = w
+		}
+	}
+	m.cachedTreeW = maxW
+}
+
 // reflattenTree rebuilds the flat item list and updates search hits if active.
 func (m *Model) reflattenTree() {
 	m.items = flattenTree(m.root)
+	m.recalcTreeWidth()
 	if m.searchQuery != "" {
 		m.rebuildSearchHits()
 	}
@@ -372,14 +388,8 @@ func (m Model) View() string {
 		return m.renderHelpOverlay()
 	}
 
-	// Calculate tree width from content (auto-fit)
-	maxLineW := 0
-	for _, item := range m.items {
-		if w := treeLineWidth(item); w > maxLineW {
-			maxLineW = w
-		}
-	}
-	treeWidth := maxLineW + 4 // padding + border
+	// Tree width from cached content width (updated on reflatten)
+	treeWidth := m.cachedTreeW + 4 // padding + border
 	if treeWidth < 20 {
 		treeWidth = 20
 	}
@@ -488,6 +498,8 @@ func (m Model) renderTreePane(width, height int) string {
 	if end > len(m.items) {
 		end = len(m.items)
 	}
+	// Recompute hasBelow after adjusting end
+	hasBelow = end < len(m.items)
 
 	// Top scroll indicator
 	if hasAbove {
