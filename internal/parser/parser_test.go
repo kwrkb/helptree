@@ -1112,6 +1112,138 @@ Most used commands:
 See apt(8) for more information about the available commands.
 `
 
+const bsdGrepHelp = `usage: grep [-abcdDEFGHhIiJLlMmnOopqRSsUVvwXxZz] [-A num] [-B num] [-C[num]]
+	[-e pattern] [-f file] [--binary-files=value] [--color=when]
+	[--context[=num]] [--directories=action] [--label] [--line-buffered]
+	[--null] [pattern] [file ...]`
+
+const bsdHeadHelp = `head: unrecognized option ` + "`" + `--help'
+usage: head [-n lines | -c bytes] [file ...]`
+
+const perlHelp = `Usage: /usr/bin/perl [switches] [--] [programfile] [arguments]
+  -0[octal/hexadecimal] specify record separator (\0, if no argument)
+  -a                    autosplit mode with -n or -p (splits $_ into @F)
+  -C[number/list]       enables the listed Unicode features
+  -c                    check syntax only (runs BEGIN and CHECK blocks)
+  -d[t][:MOD]           run program under debugger or module Devel::MOD
+  -e commandline        one line of program (several -e's allowed, omit programfile)
+  -E commandline        like -e, but enables all optional features
+  -f                    don't do $sitelib/sitecustomize.pl at startup
+  -i[extension]         edit <> files in place (makes backup if extension supplied)
+  -n                    assume "while (<>) { ... }" loop around program
+  -p                    assume loop like -n but print line also, like sed
+  -v                    print version, patchlevel and license
+  -w                    enable many useful warnings
+  -W                    enable all warnings
+  -X                    disable all warnings`
+
+func TestParseLargeInput(t *testing.T) {
+	// Input larger than 1 MB should not hang
+	big := strings.Repeat("--help\n", 200000) // ~1.4 MB
+	node := Parse("big", big)
+	if node == nil {
+		t.Fatal("expected non-nil node")
+	}
+}
+
+func TestParseBSDGrepHelp(t *testing.T) {
+	node := Parse("grep", bsdGrepHelp)
+	if len(node.Options) == 0 {
+		t.Errorf("expected options, got 0")
+	}
+	t.Logf("children=%d options=%d", len(node.Children), len(node.Options))
+	for _, o := range node.Options {
+		t.Logf("  opt: short=%q long=%q arg=%q", o.Short, o.Long, o.Arg)
+	}
+}
+
+func TestParseBSDHeadHelp(t *testing.T) {
+	node := Parse("head", bsdHeadHelp)
+	if len(node.Options) == 0 {
+		t.Errorf("expected options, got 0")
+	}
+	t.Logf("children=%d options=%d", len(node.Children), len(node.Options))
+	for _, o := range node.Options {
+		t.Logf("  opt: short=%q long=%q arg=%q", o.Short, o.Long, o.Arg)
+	}
+}
+
+const bsdCutHelp = "/usr/bin/cut: illegal option -- -\nusage: cut -b list [-n] [file ...]\n       cut -c list [file ...]\n       cut -f list [-s] [-w | -d delim] [file ...]"
+
+const bsdSedHelp = "/usr/bin/sed: illegal option -- -\nusage: sed script [-EHalnru] [-i extension] [file ...]\n\tsed [-EHalnu] [-i extension] [-e script] ... [-f script_file] ... [file ...]"
+
+const bsdCmpHelp = "cmp: unrecognized option `--help'\nusage: cmp [-l | -s | -x] [-bhz] [-i num1[:num2] | --ignore-initial=num1[:num2]] [-n num | --bytes=num] file1 file2 [skip1 [skip2]]"
+
+const topHelp = "invalid option or syntax: --help\n/usr/bin/top usage: /usr/bin/top\n\t\t[-a | -d | -e | -c <mode>]\n\t\t[-F | -f]\n\t\t[-h]\n\t\t[-i <interval>]\n\t\t[-l <samples>]\n\t\t[-s <delay>]\n\t\t[-n <nprocs>]"
+
+const zicHelp = "zic: usage is zic [ --version ] [ --help ] [ -v ] \\\n\t[ -b {slim|fat} ] [ -d directory ] [ -l localtime ] [ -L leapseconds ] \\\n\t[ -p posixrules ] [ -r '[@lo][/@hi]' ] [ -R '@hi' ] \\\n\t[ -t localtime-link ] [ -D ] [ -g gid ] [ -u uid ] \\\n\t[ filename ... ]\n\nReport bugs to tz@iana.org."
+
+func TestParseBSDCutHelp(t *testing.T) {
+	node := Parse("cut", bsdCutHelp)
+	t.Logf("children=%d options=%d", len(node.Children), len(node.Options))
+	for _, o := range node.Options {
+		t.Logf("  opt: short=%q long=%q arg=%q", o.Short, o.Long, o.Arg)
+	}
+	if len(node.Options) == 0 {
+		t.Errorf("expected options, got 0")
+	}
+}
+
+func TestParseBSDSedHelp(t *testing.T) {
+	node := Parse("sed", bsdSedHelp)
+	t.Logf("children=%d options=%d", len(node.Children), len(node.Options))
+	for _, o := range node.Options {
+		t.Logf("  opt: short=%q long=%q arg=%q", o.Short, o.Long, o.Arg)
+	}
+	if len(node.Options) == 0 {
+		t.Errorf("expected options, got 0")
+	}
+}
+
+func TestParseBSDCmpHelp(t *testing.T) {
+	node := Parse("cmp", bsdCmpHelp)
+	t.Logf("children=%d options=%d", len(node.Children), len(node.Options))
+	for _, o := range node.Options {
+		t.Logf("  opt: short=%q long=%q arg=%q", o.Short, o.Long, o.Arg)
+	}
+	if len(node.Options) == 0 {
+		t.Errorf("expected options, got 0")
+	}
+}
+
+func TestParseTopHelp(t *testing.T) {
+	node := Parse("top", topHelp)
+	t.Logf("children=%d options=%d", len(node.Children), len(node.Options))
+	for _, o := range node.Options {
+		t.Logf("  opt: short=%q long=%q arg=%q", o.Short, o.Long, o.Arg)
+	}
+	if len(node.Options) == 0 {
+		t.Errorf("expected options, got 0")
+	}
+}
+
+func TestParseZicHelp(t *testing.T) {
+	node := Parse("zic", zicHelp)
+	t.Logf("children=%d options=%d", len(node.Children), len(node.Options))
+	for _, o := range node.Options {
+		t.Logf("  opt: short=%q long=%q arg=%q", o.Short, o.Long, o.Arg)
+	}
+	if len(node.Options) == 0 {
+		t.Errorf("expected options, got 0")
+	}
+}
+
+func TestParsePerlHelp(t *testing.T) {
+	node := Parse("perl", perlHelp)
+	if len(node.Options) == 0 {
+		t.Errorf("expected options, got 0")
+	}
+	t.Logf("children=%d options=%d", len(node.Children), len(node.Options))
+	for _, o := range node.Options {
+		t.Logf("  opt: short=%q long=%q arg=%q desc=%q", o.Short, o.Long, o.Arg, o.Description)
+	}
+}
+
 func TestParseAptHelp(t *testing.T) {
 	node := Parse("apt", aptHelp)
 

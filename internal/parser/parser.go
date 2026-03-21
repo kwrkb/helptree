@@ -17,15 +17,17 @@ var (
 	commaSepListRe = regexp.MustCompile(`^\s{2,}(\w[\w-]*(?:,\s*\w[\w-]*){2,}),?\s*$`)
 
 	// Usage line
-	usageRe = regexp.MustCompile(`(?i)^usage:\s*(.*)`)
+	usageRe         = regexp.MustCompile(`(?i)^usage:\s*(.*)`)
+	embeddedUsageRe = regexp.MustCompile(`(?i)\busage(?:\s+is)?[:\s]\s*(.*)`)
 
 	// BSD compact usage patterns
 	compactOptsRe        = regexp.MustCompile(`\[-([@A-Za-z0-9%,]+)\]`)
 	pipeSepOptsRe        = regexp.MustCompile(`\[((?:-[A-Za-z]\s*\|\s*)+(?:-[A-Za-z]))\]`)
-	bracketShortArgRe    = regexp.MustCompile(`\[-([A-Za-z])\s+(\w+)\]`)
+	pipeSepOptsArgRe     = regexp.MustCompile(`\[((?:-[A-Za-z]\s+\w+\s*\|\s*)+(?:-[A-Za-z](?:\s+\w+)?))\]`)
+	bracketShortArgRe    = regexp.MustCompile(`\[-([A-Za-z])\s+<?(\w[\w-]*)>?\]`)
 	bracketShortOptArgRe = regexp.MustCompile(`\[-([A-Za-z])\[(\w+)\]\]`)
 	bracketLongArgRe      = regexp.MustCompile(`\[--([\w-]+)=([\w]+)\]`)
-	bracketLongSpaceArgRe = regexp.MustCompile(`\[--([\w-]+)\s+(\w+)\]`)
+	bracketLongSpaceArgRe = regexp.MustCompile(`\[--([\w-]+)\s+<?(\w[\w-]*)>?\]`)
 	bracketLongRe         = regexp.MustCompile(`\[--([\w-]+)\]`)
 
 	// npx-style bracket options
@@ -45,6 +47,13 @@ func Parse(name, helpText string) *model.Node {
 	}
 
 	helpText = strings.ReplaceAll(helpText, "\r\n", "\n")
+
+	// Guard against absurdly large input (e.g. "yes --help" producing GBs).
+	const maxHelpSize = 1 << 20 // 1 MB
+	if len(helpText) > maxHelpSize {
+		helpText = helpText[:maxHelpSize]
+	}
+
 	lines := strings.Split(helpText, "\n")
 	if len(lines) == 0 {
 		return node
@@ -266,7 +275,7 @@ func extractUsageOptions(lines []string) []model.Option {
 	var usageParts []string
 	inUsage := false
 	for _, line := range lines {
-		if usageRe.MatchString(line) {
+		if usageRe.MatchString(line) || (!inUsage && embeddedUsageRe.MatchString(line)) {
 			usageParts = append(usageParts, line)
 			inUsage = true
 			continue
@@ -292,13 +301,33 @@ func extractUsageOptions(lines []string) []model.Option {
 	usageText := strings.Join(usageParts, " ")
 	var opts []model.Option
 
-	// Extract [-f | -i] pipe-separated options
+	// Normalize "[ --opt ]" (space-padded brackets) to "[--opt]"
+	usageText = regexp.MustCompile(`\[\s+`).ReplaceAllString(usageText, "[")
+	usageText = regexp.MustCompile(`\s+\]`).ReplaceAllString(usageText, "]")
+
+	// Extract [-f | -i] pipe-separated options (bare flags)
 	for _, m := range pipeSepOptsRe.FindAllStringSubmatch(usageText, -1) {
 		parts := strings.Split(m[1], "|")
 		for _, p := range parts {
 			p = strings.TrimSpace(p)
 			if len(p) == 2 && p[0] == '-' {
 				opts = append(opts, model.Option{Short: p})
+			}
+		}
+	}
+
+	// Extract [-n lines | -c bytes] pipe-separated options with arguments
+	for _, m := range pipeSepOptsArgRe.FindAllStringSubmatch(usageText, -1) {
+		parts := strings.Split(m[1], "|")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			fields := strings.Fields(p)
+			if len(fields) >= 1 && len(fields[0]) == 2 && fields[0][0] == '-' {
+				opt := model.Option{Short: fields[0]}
+				if len(fields) >= 2 {
+					opt.Arg = fields[1]
+				}
+				opts = append(opts, opt)
 			}
 		}
 	}

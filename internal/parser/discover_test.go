@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kwrkb/helptree/internal/model"
 	"github.com/kwrkb/helptree/internal/parser"
 )
 
@@ -74,9 +75,13 @@ func TestDiscover(t *testing.T) {
 	fmt.Fprintf(tsvFile, "status\tcmd\tchildren\toptions\tdescription\n")
 
 	var okCount, emptyCount, skipCount int
+	total := len(cmds)
 
-	for _, cmdPath := range cmds {
+	for i, cmdPath := range cmds {
 		name := filepath.Base(cmdPath)
+
+		// Progress log every command
+		t.Logf("[%d/%d] %s ...", i+1, total, name)
 
 		// Run --help with timeout; kill process group on timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -95,6 +100,7 @@ func TestDiscover(t *testing.T) {
 		// Skip if no output
 		if helpText == "" || (err != nil && helpText == "") {
 			skipCount++
+			t.Logf("  -> SKIP (no output)")
 			fmt.Fprintf(tsvFile, "SKIP\t%s\t0\t0\t\n", name)
 			continue
 		}
@@ -102,16 +108,32 @@ func TestDiscover(t *testing.T) {
 		// Save raw help output
 		os.WriteFile(filepath.Join(helpDir, name+".txt"), out, 0o644)
 
-		// Parse
-		node := parser.Parse(name, helpText)
+		// Parse with timeout to catch ReDoS-like hangs
+		parseDone := make(chan *model.Node, 1)
+		go func() {
+			parseDone <- parser.Parse(name, helpText)
+		}()
+
+		var node *model.Node
+		select {
+		case node = <-parseDone:
+		case <-time.After(10 * time.Second):
+			t.Logf("  -> PARSE_TIMEOUT (parser hung for >10s)")
+			fmt.Fprintf(tsvFile, "PARSE_TIMEOUT\t%s\t0\t0\t\n", name)
+			skipCount++
+			continue
+		}
+
 		desc := truncDesc(node.Description)
 
 		if len(node.Children) > 0 || len(node.Options) > 0 {
 			okCount++
+			t.Logf("  -> OK (children=%d, options=%d)", len(node.Children), len(node.Options))
 			fmt.Fprintf(tsvFile, "OK\t%s\t%d\t%d\t%s\n",
 				name, len(node.Children), len(node.Options), desc)
 		} else {
 			emptyCount++
+			t.Logf("  -> EMPTY")
 			fmt.Fprintf(tsvFile, "EMPTY\t%s\t0\t0\t%s\n", name, desc)
 		}
 	}
