@@ -163,3 +163,38 @@
 
 - `gemini --help` がハングし、スモークテスト全体がブロックされた
 - **ルール**: 外部コマンド実行には `context.WithTimeout` で 10 秒タイムアウトを設定する。ハングするコマンドは skip として扱う
+
+## 2026-03-21: macOS ディスカバリーテスト + パーサー改善（75.4% → 78.2%）
+
+### 巨大入力に対するサイズガードが必須
+
+- `instmodsh --help` (926MB)、`yes --help` (4.3GB) がパーサーに渡され、正規表現処理でハング（PARSE_TIMEOUT）
+- `extractUsageOptions()` が全行を1文字列に join してから regex を適用するため、巨大入力で致命的
+- **ルール**: `Parse()` 冒頭で入力サイズを制限する（1MB上限）。実際の `--help` 出力は最大でも数十KB
+
+### ディスカバリーテストには進捗ログとパーサータイムアウトを入れる
+
+- macOS で 1,174 コマンドを処理すると数分かかり、途中のハングを検出できない
+- **ルール**: コマンドごとに `t.Logf("[N/total] cmd ... -> STATUS")` で進捗出力。パーサーは goroutine + select で 10 秒タイムアウトし、`PARSE_TIMEOUT` としてスキップする
+
+### macOS (BSD) と WSL (GNU) でヘルプ形式が大きく異なる
+
+- WSL: GNU coreutils が主流。`--help` に構造化されたセクション・オプション表を持つ → OK 率 88.0%
+- macOS: BSD ツールが主流。`usage:` 行のみの簡素なヘルプ、`illegal option` エラー付き → OK 率 75.4%（改善後 78.2%）
+- **ルール**: 両環境でディスカバリーテストを実施して OS 固有のパターンを把握する。BSD 形式の改善は `extractUsageOptions()` のフォールバック正規表現で対応
+
+### 埋め込み usage パターンへの対応
+
+- `top`: `/usr/bin/top usage: /usr/bin/top` — `usage:` が行頭でなく途中に出現
+- `zic`: `usage is zic [...]` — コロンなしの `usage is` 形式
+- **ルール**: `usageRe` (`^usage:`) でマッチしない場合、`embeddedUsageRe` (`\busage(?:\s+is)?[:\s]`) でフォールバック検出する
+
+### スペース付きブラケットの正規化
+
+- `zic` の `[ --version ]` のように、ブラケット内にスペースパディングがある形式は既存の `bracketLongRe` にマッチしない
+- **ルール**: `extractUsageOptions()` で usageText を正規化（`[ ` → `[`、` ]` → `]`）してから正規表現を適用する
+
+### サンドボックスと Go ビルドキャッシュの干渉
+
+- Claude Code のサンドボックスが `TMPDIR` を書き換えるため、Go の work dir (`/tmp/claude`) が見つからずビルドが失敗する
+- **ルール**: Go テスト実行時にサンドボックスが干渉する場合は `dangerouslyDisableSandbox: true` で実行する。または `/sandbox` でサンドボックスを無効化する
