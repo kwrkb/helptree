@@ -24,7 +24,7 @@ var (
 // parseCommandBlock extracts subcommands from a classified block.
 func parseCommandBlock(node *model.Node, b *Block, rootName string) {
 	if b.Kind == BlockSingle {
-		parseCommandBlockSingle(node, b)
+		parseCommandBlockSingle(node, b, rootName)
 		return
 	}
 	if b.Kind != BlockTable {
@@ -76,19 +76,46 @@ func parseCommandBlock(node *model.Node, b *Block, rootName string) {
 }
 
 // parseCommandBlockSingle handles single-column command blocks (bare names, comma lists).
-func parseCommandBlockSingle(node *model.Node, b *Block) {
+func parseCommandBlockSingle(node *model.Node, b *Block, rootName string) {
+	seen := make(map[string]bool)
+	for _, c := range node.Children {
+		seen[c.Name] = true
+	}
+
 	for _, line := range b.Lines {
 		// Try comma-separated list first
 		if names := parseCommaSeparatedList(line); len(names) > 0 {
 			for _, name := range names {
-				node.Children = append(node.Children, &model.Node{Name: name})
+				if !seen[name] {
+					node.Children = append(node.Children, &model.Node{Name: name})
+					seen[name] = true
+				}
 			}
 			continue
 		}
-		// Bare subcommand name
+
 		trimmed := strings.TrimSpace(line)
-		if trimmed != "" && !strings.Contains(trimmed, " ") {
-			node.Children = append(node.Children, &model.Node{Name: trimmed})
+		if trimmed == "" {
+			continue
+		}
+
+		// Strip binary prefix if present (e.g., "brew search TEXT" → "search TEXT")
+		stripped := strings.TrimSpace(stripBinaryPrefix("  "+trimmed, rootName))
+
+		// Bare subcommand name (no spaces after stripping)
+		if !strings.Contains(stripped, " ") {
+			if stripped != "" && !seen[stripped] {
+				node.Children = append(node.Children, &model.Node{Name: stripped})
+				seen[stripped] = true
+			}
+			continue
+		}
+
+		// Prefixed command with arguments: extract first word
+		name := extractCommandName(stripped)
+		if name != "" && !seen[name] {
+			node.Children = append(node.Children, &model.Node{Name: name})
+			seen[name] = true
 		}
 	}
 }

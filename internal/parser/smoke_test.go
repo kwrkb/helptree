@@ -29,6 +29,7 @@ var knownCLIs = []smokeCase{
 	{cmd: "fvm", minChildren: 5, minOptions: 2},
 	{cmd: "node", minChildren: -1, minOptions: 10},
 	{cmd: "npx", minChildren: -1, minOptions: 2},
+	{cmd: "brew", minChildren: 8, minOptions: -1},
 
 	// System tools
 	{cmd: "apt", minChildren: 10, minOptions: -1},

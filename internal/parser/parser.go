@@ -84,6 +84,33 @@ func Parse(name, helpText string) *model.Node {
 	}
 	classifyBlocks(blocks)
 
+	// Reclassify "other" blocks where most lines start with the root command name
+	// (e.g., brew's help: "  brew search TEXT|/REGEX/")
+	for i := range blocks {
+		b := &blocks[i]
+		if b.Kind == BlockHeader || b.Section != "other" {
+			continue
+		}
+		prefixed := 0
+		total := 0
+		for _, line := range b.Lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			total++
+			if strings.HasPrefix(trimmed, name+" ") {
+				prefixed++
+			}
+		}
+		if prefixed >= 2 && prefixed*2 > total {
+			b.Section = "commands"
+			if b.Kind != BlockTable {
+				b.Kind = BlockSingle
+			}
+		}
+	}
+
 	for i := range blocks {
 		b := &blocks[i]
 		switch b.Section {
