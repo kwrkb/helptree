@@ -109,7 +109,7 @@ func Parse(name, helpText string) *model.Node {
 		hasArgs := false
 		for _, line := range b.Lines {
 			trimmed := strings.TrimSpace(line)
-			stripped := strings.TrimSpace(stripBinaryPrefix("  "+trimmed, name))
+			stripped := trimCommandPrefix(trimmed, name)
 			if stripped != trimmed && strings.Contains(stripped, " ") {
 				hasArgs = true
 				break
@@ -410,6 +410,17 @@ func stripBinaryPrefix(line, rootName string) string {
 		return line[:indent] + trimmed[len(prefix):]
 	}
 	return line
+}
+
+// trimCommandPrefix strips the root command name prefix and returns the trimmed result.
+// e.g., "brew search TEXT" with rootName="brew" becomes "search TEXT".
+// If no prefix matches, returns the original trimmed string.
+func trimCommandPrefix(s, rootName string) string {
+	prefix := rootName + " "
+	if strings.HasPrefix(s, prefix) {
+		return s[len(prefix):]
+	}
+	return s
 }
 
 // parseBracketOptions parses npx-style bracket-enclosed option lines.

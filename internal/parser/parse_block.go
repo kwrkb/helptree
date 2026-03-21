@@ -82,14 +82,18 @@ func parseCommandBlockSingle(node *model.Node, b *Block, rootName string) {
 		seen[c.Name] = true
 	}
 
+	addCommand := func(name string) {
+		if name != "" && !strings.HasPrefix(name, "-") && !seen[name] {
+			node.Children = append(node.Children, &model.Node{Name: name})
+			seen[name] = true
+		}
+	}
+
 	for _, line := range b.Lines {
 		// Try comma-separated list first
 		if names := parseCommaSeparatedList(line); len(names) > 0 {
 			for _, name := range names {
-				if !seen[name] {
-					node.Children = append(node.Children, &model.Node{Name: name})
-					seen[name] = true
-				}
+				addCommand(name)
 			}
 			continue
 		}
@@ -100,23 +104,16 @@ func parseCommandBlockSingle(node *model.Node, b *Block, rootName string) {
 		}
 
 		// Strip binary prefix if present (e.g., "brew search TEXT" → "search TEXT")
-		stripped := strings.TrimSpace(stripBinaryPrefix("  "+trimmed, rootName))
+		stripped := trimCommandPrefix(trimmed, rootName)
 
 		// Bare subcommand name (no spaces after stripping)
 		if !strings.Contains(stripped, " ") {
-			if stripped != "" && !seen[stripped] {
-				node.Children = append(node.Children, &model.Node{Name: stripped})
-				seen[stripped] = true
-			}
+			addCommand(stripped)
 			continue
 		}
 
 		// Prefixed command with arguments: extract first word
-		name := extractCommandName(stripped)
-		if name != "" && !seen[name] {
-			node.Children = append(node.Children, &model.Node{Name: name})
-			seen[name] = true
-		}
+		addCommand(extractCommandName(stripped))
 	}
 }
 
