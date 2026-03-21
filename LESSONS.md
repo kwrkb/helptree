@@ -86,6 +86,29 @@
 - `categorizeSection("Create")` = `"other"`。`"other"` ヘッダーの section を後続ブロックに伝搬すると、`"Create:"` 配下のオプションブロックがスキップされる（tar の問題）
 - **ルール**: `classifyBlocks` で `"other"` 分類のヘッダーは伝搬せず、後続ブロックは内容推論にフォールバックさせる
 
+## 2026-03-21: brew 形式対応 + マルチエージェントレビュー
+
+### バイナリ名プレフィックス付きコマンド例の再分類
+
+- brew の `--help` は "Example usage:" 等のセクション内に `brew search TEXT|/REGEX/` のようなコマンド例を並べる形式。ヘッダーに "command" を含まないため `categorizeSection` で "other" になる
+- **ルール**: `classifyBlocks` 後にバイナリ名プレフィックス検出パスを追加。`prefixed >= 2 && prefixed*2 > total` で再分類。ただし全行がベアネーム（引数なし）の場合は Examples セクションの可能性が高いため除外する
+
+### Examples セクションの誤分類（Codex レビューで発見）
+
+- `helptree docker` / `helptree kubectl` のような使用例が `helptree ` プレフィックスにマッチし、`docker` 等がサブコマンドとして誤認される
+- **ルール**: プレフィックス除去後に全行が単一単語（引数なし）の場合は使用例とみなし、コマンドとして再分類しない。`hasArgs` チェックで最低1行に引数が必要
+
+### マルチエージェントレビューの有効性
+
+- Codex（gpt-5.4）と Gemini を並列でレビューさせると、異なる観点のフィードバックが得られる
+- Codex は `TestSelfParse` での偽陽性（P1バグ）を発見、Gemini は可読性・リファクタ観点の改善を提案
+- **ルール**: 重要なパーサー変更は自己レビュー + マルチエージェントレビューを実施。特にヒューリスティック追加時は既存テストケースへの副作用を重点的にチェック
+
+### `stripBinaryPrefix` の "  " ハック回避
+
+- `stripBinaryPrefix` はインデント保持のための関数で、既にトリム済みの文字列に `"  "` を付加して呼ぶのは可読性が低い
+- **ルール**: トリム済み文字列のプレフィックス除去には専用の `trimCommandPrefix` を使う。`stripBinaryPrefix` はカラム位置を保持する必要がある場面（BlockTable のキー分割）でのみ使用
+
 ### Clap/Rust CLI の bare-flag 形式は構造推定で自動対応できる
 
 - bat, rg, fd, fnm 等は bare flag（`-A, --show-all` のみの行）+ indented description 形式
