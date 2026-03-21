@@ -66,6 +66,11 @@ func splitBlocks(lines []string) []Block {
 			blocks = append(blocks, newBlock(BlockHeader, m[1], []string{line}))
 			continue
 		}
+		if bareSectionRe.MatchString(line) {
+			flush()
+			blocks = append(blocks, newBlock(BlockHeader, bareSectionRe.FindStringSubmatch(line)[1], []string{line}))
+			continue
+		}
 		if strings.HasPrefix(trimmed, "The commands are") ||
 			strings.HasPrefix(trimmed, "The topics are") {
 			flush()
@@ -129,7 +134,22 @@ func detectColumns(b *Block) {
 			}
 		}
 	} else {
-		b.Kind = classifyNonTable(b)
+		// Even if columns don't align, if most lines use dash separators
+		// it's still a table (command names vary in length).
+		dashCount := 0
+		for _, info := range infos {
+			if info.separator == SepDash {
+				dashCount++
+			}
+		}
+		if dashCount*2 >= len(infos) && dashCount >= 2 {
+			b.Kind = BlockTable
+			b.Separator = SepDash
+			b.DescCol = -1 // per-line splitting, not fixed column
+			b.KeyCol = leadingSpaces(b.Lines[0])
+		} else {
+			b.Kind = classifyNonTable(b)
+		}
 	}
 }
 

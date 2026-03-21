@@ -1,9 +1,11 @@
 package parser_test
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kwrkb/helptree/internal/parser"
 )
@@ -85,8 +87,10 @@ func TestSmoke(t *testing.T) {
 				t.Skipf("%s not found in PATH", tc.cmd)
 			}
 
-			// Run command --help
-			out, err := exec.Command(path, "--help").CombinedOutput()
+			// Run command --help with timeout
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			out, err := exec.CommandContext(ctx, path, "--help").CombinedOutput()
 			helpText := string(out)
 			if helpText == "" && err != nil {
 				t.Skipf("%s --help produced no output: %v", tc.cmd, err)
