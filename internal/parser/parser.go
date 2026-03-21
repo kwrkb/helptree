@@ -103,7 +103,19 @@ func Parse(name, helpText string) *model.Node {
 				prefixed++
 			}
 		}
-		if prefixed >= 2 && prefixed*2 > total {
+		// Require at least one line to have arguments after stripping prefix.
+		// Pure "rootName word" lines (all bare) are likely usage examples,
+		// not command lists (e.g., "helptree docker" in Examples section).
+		hasArgs := false
+		for _, line := range b.Lines {
+			trimmed := strings.TrimSpace(line)
+			stripped := strings.TrimSpace(stripBinaryPrefix("  "+trimmed, name))
+			if stripped != trimmed && strings.Contains(stripped, " ") {
+				hasArgs = true
+				break
+			}
+		}
+		if prefixed >= 2 && prefixed*2 > total && hasArgs {
 			b.Section = "commands"
 			if b.Kind != BlockTable {
 				b.Kind = BlockSingle
