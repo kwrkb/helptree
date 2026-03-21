@@ -11,7 +11,7 @@ import (
 	"github.com/kwrkb/helptree/internal/tui"
 )
 
-const version = "0.1.1"
+const version = "0.1.2"
 
 func printHelp(w io.Writer) {
 	fmt.Fprintf(w, "helptree v%s — Interactive CLI help viewer\n\n", version)
