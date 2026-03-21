@@ -34,6 +34,14 @@ Examples:
 		t.Errorf("expected name 'helptree', got %q", node.Name)
 	}
 
+	// Examples section should NOT produce children
+	if len(node.Children) != 0 {
+		t.Errorf("expected 0 children (examples are not subcommands), got %d", len(node.Children))
+		for i, c := range node.Children {
+			t.Logf("  child[%d]: %q", i, c.Name)
+		}
+	}
+
 	// Should have parsed options
 	if len(node.Options) < 2 {
 		t.Errorf("expected at least 2 options, got %d", len(node.Options))

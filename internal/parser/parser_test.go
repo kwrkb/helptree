@@ -819,6 +819,62 @@ Run "npm help exec" for more info`
 	}
 }
 
+func TestParseBrew(t *testing.T) {
+	// brew-style: section headers without "command", lines prefixed with binary name
+	help := `Example usage:
+  brew search TEXT|/REGEX/
+  brew info [FORMULA|CASK...]
+  brew install FORMULA|CASK...
+  brew update
+  brew upgrade [FORMULA|CASK...]
+  brew uninstall FORMULA|CASK...
+  brew list [FORMULA|CASK...]
+
+Troubleshooting:
+  brew config
+  brew doctor
+  brew install --verbose --debug FORMULA|CASK
+
+Contributing:
+  brew create URL [--no-fetch]
+  brew edit [FORMULA|CASK...]
+
+Further help:
+  brew commands
+  brew help [COMMAND]
+  man brew
+  https://docs.brew.sh`
+	node := Parse("brew", help)
+
+	names := make(map[string]bool)
+	for _, c := range node.Children {
+		names[c.Name] = true
+	}
+
+	// Core subcommands should be extracted
+	for _, want := range []string{
+		"search", "info", "install", "update", "upgrade",
+		"uninstall", "list", "config", "doctor", "create", "edit",
+	} {
+		if !names[want] {
+			t.Errorf("missing subcommand %q", want)
+		}
+	}
+
+	// "install" appears in multiple sections — should not be duplicated
+	count := 0
+	for _, c := range node.Children {
+		if c.Name == "install" {
+			count++
+		}
+	}
+	if count > 1 {
+		t.Errorf("install duplicated %d times", count)
+	}
+
+	t.Logf("children=%d: %v", len(node.Children), names)
+}
+
 func TestParseUsageFallbackOnlyWhenFewOptions(t *testing.T) {
 	// GNU-style help with enough options should NOT trigger usage fallback
 	help := `Usage: tool [-abc] [options]
