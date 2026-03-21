@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
@@ -12,12 +13,35 @@ import (
 
 const version = "0.1.0"
 
+func printHelp(w io.Writer) {
+	fmt.Fprintf(w, "helptree v%s — Interactive CLI help viewer\n\n", version)
+	fmt.Fprintf(w, "Usage: helptree <command>\n\n")
+	fmt.Fprintf(w, "Explore any CLI tool's help output as an interactive tree.\n")
+	fmt.Fprintf(w, "Subcommand help is loaded on demand.\n\n")
+	fmt.Fprintf(w, "Options:\n")
+	fmt.Fprintf(w, "  -h, --help       Show this help message\n")
+	fmt.Fprintf(w, "  -v, --version    Show version\n\n")
+	fmt.Fprintf(w, "Keybindings (press ? in TUI for full list):\n")
+	fmt.Fprintf(w, "  j/k              Navigate up/down\n")
+	fmt.Fprintf(w, "  Enter/l          Expand / load subcommand\n")
+	fmt.Fprintf(w, "  h                Collapse\n")
+	fmt.Fprintf(w, "  /                Search\n")
+	fmt.Fprintf(w, "  q                Quit\n\n")
+	fmt.Fprintf(w, "Examples:\n")
+	fmt.Fprintf(w, "  helptree docker\n")
+	fmt.Fprintf(w, "  helptree kubectl\n")
+	fmt.Fprintf(w, "  helptree git\n")
+}
+
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "helptree v%s — Interactive CLI help viewer\n\n", version)
-		fmt.Fprintf(os.Stderr, "Usage: helptree <command>\n")
-		fmt.Fprintf(os.Stderr, "Example: helptree docker\n")
+		printHelp(os.Stderr)
 		os.Exit(1)
+	}
+
+	if os.Args[1] == "--help" || os.Args[1] == "-h" {
+		printHelp(os.Stdout)
+		return
 	}
 
 	if os.Args[1] == "--version" || os.Args[1] == "-v" {
