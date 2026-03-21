@@ -913,3 +913,227 @@ Options:
 		}
 	}
 }
+
+const xdgOpenHelp = `xdg-open - opens a file or URL in the user's preferred application
+
+Synopsis
+
+xdg-open { file | URL }
+
+xdg-open { --help | --manual | --version }
+
+Use 'man xdg-open' or 'xdg-open --manual' for additional info.
+`
+
+func TestParseXdgOpen(t *testing.T) {
+	node := Parse("xdg-open", xdgOpenHelp)
+
+	if node.Description == "" {
+		t.Error("expected non-empty description")
+	}
+
+	// Should extract --help, --manual, --version from brace-pipe pattern
+	if len(node.Options) < 3 {
+		t.Errorf("expected >= 3 options, got %d", len(node.Options))
+		for _, o := range node.Options {
+			t.Logf("  %s", o.Long)
+		}
+	}
+
+	// Verify specific options
+	optNames := make(map[string]bool)
+	for _, o := range node.Options {
+		optNames[o.Long] = true
+	}
+	for _, want := range []string{"--help", "--manual", "--version"} {
+		if !optNames[want] {
+			t.Errorf("missing option %s", want)
+		}
+	}
+}
+
+const ipHelp = `Usage: ip [ OPTIONS ] OBJECT { COMMAND | help }
+       ip [ -force ] -batch filename
+where  OBJECT := { address | addrlabel | fou | help | ila | ioam | l2tp | link |
+                   macsec | maddress | monitor | mptcp | mroute | mrule |
+                   neighbor | neighbour | netconf | netns | nexthop | ntable |
+                   ntbl | route | rule | sr | stats | tap | tcpmetrics |
+                   token | tunnel | tuntap | vrf | xfrm }
+       OPTIONS := { -V[ersion] | -s[tatistics] | -d[etails] | -r[esolve] |
+                    -h[uman-readable] | -iec | -j[son] | -p[retty] |
+                    -f[amily] { inet | inet6 | mpls | bridge | link } |
+                    -4 | -6 | -M | -B | -0 |
+                    -l[oops] { maximum-addr-flush-attempts } | -echo | -br[ief] |
+                    -o[neline] | -t[imestamp] | -ts[hort] | -b[atch] [filename] |
+                    -rc[vbuf] [size] | -n[etns] name | -N[umeric] | -a[ll] |
+                    -c[olor]}
+`
+
+func TestParseIpHelp(t *testing.T) {
+	node := Parse("ip", ipHelp)
+
+	// Should extract OBJECT entries as children
+	if len(node.Children) < 20 {
+		t.Errorf("expected >= 20 children, got %d", len(node.Children))
+		for i, c := range node.Children {
+			if i >= 5 {
+				break
+			}
+			t.Logf("  child: %s", c.Name)
+		}
+	}
+
+	// Should extract OPTIONS
+	if len(node.Options) < 5 {
+		t.Errorf("expected >= 5 options, got %d", len(node.Options))
+		for _, o := range node.Options {
+			t.Logf("  %s %s", o.Short, o.Long)
+		}
+	}
+}
+
+const snapHelp = `The snap command lets you install, configure, refresh and remove snaps.
+Snaps are packages that work across many different Linux distributions,
+enabling secure delivery and operation of the latest apps and utilities.
+
+Usage: snap <command> [<options>...]
+
+Commonly used commands can be classified as follows:
+
+           Basics: find, info, install, remove, list, components
+          ...more: refresh, revert, switch, disable, enable, create-cohort
+          History: changes, tasks, abort, watch
+          Daemons: services, start, stop, restart, logs
+      Permissions: connections, interface, connect, disconnect
+    Configuration: get, set, unset, wait
+      App Aliases: alias, aliases, unalias, prefer
+          Account: login, logout, whoami
+        Snapshots: saved, save, check-snapshot, restore, forget
+           Device: model, remodel, reboot, recovery
+     Quota Groups: set-quota, remove-quota, quotas, quota
+  Validation Sets: validate
+        ... Other: warnings, okay, known, ack, version
+      Development: download, pack, run, try, sign
+
+For more information about a command, run 'snap help <command>'.
+For a short summary of all commands, run 'snap help --all'.
+`
+
+func TestParseSnapHelp(t *testing.T) {
+	node := Parse("snap", snapHelp)
+
+	// Should extract commands from category:comma format
+	if len(node.Children) < 40 {
+		t.Errorf("expected >= 40 children, got %d", len(node.Children))
+		for i, c := range node.Children {
+			if i >= 10 {
+				break
+			}
+			t.Logf("  child: %s", c.Name)
+		}
+	}
+
+	// Check some specific commands
+	childNames := make(map[string]bool)
+	for _, c := range node.Children {
+		childNames[c.Name] = true
+	}
+	for _, want := range []string{"find", "install", "remove", "login", "download"} {
+		if !childNames[want] {
+			t.Errorf("missing child command %s", want)
+		}
+	}
+}
+
+const adduserHelp = `adduser [--uid id] [--firstuid id] [--lastuid id]
+        [--gid id] [--firstgid id] [--lastgid id] [--ingroup group]
+        [--add-extra-groups] [--encrypt-home] [--shell shell]
+        [--comment comment] [--home dir] [--no-create-home]
+        [--allow-all-names] [--allow-bad-names]
+        [--disabled-password] [--disabled-login]
+        [--conf file] [--extrausers] [--quiet] [--verbose] [--debug]
+        user
+    Add a regular user
+
+adduser --system
+        [--uid id] [--group] [--ingroup group] [--gid id]
+        [--shell shell] [--comment comment] [--home dir] [--no-create-home]
+        [--conf file] [--extrausers] [--quiet] [--verbose] [--debug]
+        user
+   Add a system user
+`
+
+func TestParseAdduserHelp(t *testing.T) {
+	node := Parse("adduser", adduserHelp)
+
+	// Should extract options from bracket patterns in usage-like lines
+	if len(node.Options) < 10 {
+		t.Errorf("expected >= 10 options, got %d", len(node.Options))
+		for _, o := range node.Options {
+			t.Logf("  %s %s", o.Short, o.Long)
+		}
+	}
+
+	// Check some specific options
+	optNames := make(map[string]bool)
+	for _, o := range node.Options {
+		optNames[o.Long] = true
+	}
+	for _, want := range []string{"--uid", "--shell", "--quiet", "--verbose"} {
+		if !optNames[want] {
+			t.Errorf("missing option %s", want)
+		}
+	}
+}
+
+const aptHelp = `apt 3.1.6ubuntu2 (amd64)
+Usage: apt [options] command
+
+apt is a commandline package manager and provides commands for
+searching and managing as well as querying information about packages.
+It provides the same functionality as the specialized APT tools,
+like apt-get and apt-cache, but enables options more suitable for
+interactive use by default.
+
+Most used commands:
+  list - list packages based on package names
+  search - search in package descriptions
+  show - show package details
+  install - install packages
+  reinstall - reinstall packages
+  remove - remove packages
+  autoremove - automatically remove all unused packages
+  update - update list of available packages
+  upgrade - upgrade the system by installing/upgrading packages
+  full-upgrade - upgrade the system by removing/installing/upgrading packages
+  edit-sources - edit the source information file
+  satisfy - satisfy dependency strings
+
+See apt(8) for more information about the available commands.
+`
+
+func TestParseAptHelp(t *testing.T) {
+	node := Parse("apt", aptHelp)
+
+	// "Most used commands:" should be recognized as commands section
+	if len(node.Children) < 10 {
+		t.Errorf("expected >= 10 children, got %d", len(node.Children))
+		for i, c := range node.Children {
+			if i >= 5 {
+				break
+			}
+			t.Logf("  child: %s desc=%q", c.Name, c.Description)
+		}
+	}
+
+	// Check specific commands
+	childNames := make(map[string]bool)
+	for _, c := range node.Children {
+		childNames[c.Name] = true
+	}
+	for _, want := range []string{"list", "install", "remove", "update", "upgrade"} {
+		if !childNames[want] {
+			t.Errorf("missing child command %s", want)
+		}
+	}
+}
