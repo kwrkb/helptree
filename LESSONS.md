@@ -59,10 +59,35 @@
 - `cp --help`, `mv --help` 等で GNU coreutils の長いオプション説明行がサブコマンドとして誤認される場合がある
 - 現時点では未対応。将来的にはオプション行の優先度を上げるか、coreutils 特有のパターンを検出する必要がある
 
-### スモークテストで発見した未対応ヘルプ形式（5パターン）
+### スモークテストで発見した未対応ヘルプ形式（5パターン） — 対応済み
 
-- **ブラケット圧縮オプション形式（npx）**: `[--package <pkg>] [-c|--call <call>]` のように1行に複数オプションをブラケットで並べる形式。現パーサーは1行1オプション前提のため全くパースできない（options=0）
-- **全大文字セクションヘッダー・コロンなし（glab）**: `COMMANDS`, `FLAGS`, `USAGE` のようにコロンなしの全大文字ヘッダー。現在のセクション検出は `Commands:` のようにコロン付きを期待するため、40+のサブコマンドのうち5件しか拾えない
-- **単一文字フラグ + コロン区切り形式（python3）**: `-b     : issue warnings about...` のように短オプション1文字 + ` : ` 区切り。`--flag  description` パターンにマッチせず options=0
-- **サブコマンド行にバイナリ名プレフィックス（gemini）**: `gemini mcp   Manage MCP servers` のようにサブコマンド行が `バイナリ名 サブコマンド名  説明` の形式。通常の `  subcommand  description`（インデント開始）と異なりサブコマンド検出を見逃す（children=1）
-- **-h/--help, -v/--version の除外問題（fvm）**: fvm は `-h, --help` / `--verbose` / `-v, --version` の3オプション表示だが1つしかパースされない。意図的フィルタか正規表現の問題か要調査
+上記5パターンは `0aab70c` で全て対応済み。
+
+## 2026-03-21: パーサーリファクタ（正規表現ベース → 構造推定ベース）
+
+### カラム検出ベースの構造推定が正規表現カタログより拡張性が高い
+
+- 正規表現は「行の見た目」で判断するため、新形式ごとに追加が必要（26個まで膨張した）
+- 空白カラムの整列（2+ space gap）はほぼ全てのCLIヘルプ形式に共通する構造的特徴
+- **ルール**: 新形式対応時はまず `findGap` / `detectColumns` の動作を確認し、構造検出で対応可能かを先に検討する。正規表現は key-only パースにのみ使う
+
+### stripBinaryPrefix とカラム位置のずれ
+
+- `stripBinaryPrefix` はプレフィックスを除去して行の長さを変える。ブロックの `DescCol` は元の行から計算されるため、strip後の行に `splitAtColumn(line, b.DescCol)` を適用するとカラム位置がずれる
+- **ルール**: カラム分割は strip 前に行い、key 部分だけに prefix strip を適用する
+
+### keyMultiFlagRe と keyShortLongRe の優先順序
+
+- `-D, --debug` は multi-flag regex（`(-\w|--[\w-]+)(,...)` 2+ flags）にもマッチする。先に multi-flag をチェックすると short/long のペアリングが壊れる
+- **ルール**: `keyShortLongRe` を最優先でチェックし、multi-flag は 3+ flags の場合のみ適用
+
+### "other" ヘッダーの伝搬を止める
+
+- `categorizeSection("Create")` = `"other"`。`"other"` ヘッダーの section を後続ブロックに伝搬すると、`"Create:"` 配下のオプションブロックがスキップされる（tar の問題）
+- **ルール**: `classifyBlocks` で `"other"` 分類のヘッダーは伝搬せず、後続ブロックは内容推論にフォールバックさせる
+
+### Clap/Rust CLI の bare-flag 形式は構造推定で自動対応できる
+
+- bat, rg, fd, fnm 等は bare flag（`-A, --show-all` のみの行）+ indented description 形式
+- カラム検出でテーブルにならない（BlockSingle/BlockProse）が、`inferSectionFromContent` で `-` 始まりの行を数えて options 分類し、`parseOptionBlockBare` で flag 行 + continuation 行として処理
+- **ルール**: 新 CLI 形式で options=0 になったら、まずブロック分類（`classifyBlocks`）の結果をデバッグし、section が正しく `"options"` になっているか確認する
