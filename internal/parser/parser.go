@@ -42,6 +42,7 @@ func Parse(name, helpText string) *model.Node {
 		Loaded: true,
 	}
 
+	helpText = strings.ReplaceAll(helpText, "\r\n", "\n")
 	lines := strings.Split(helpText, "\n")
 	if len(lines) == 0 {
 		return node

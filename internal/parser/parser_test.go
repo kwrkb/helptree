@@ -875,6 +875,23 @@ Further help:
 	t.Logf("children=%d: %v", len(node.Children), names)
 }
 
+func TestParseCRLF(t *testing.T) {
+	// Windows-style \r\n line endings should produce the same result as \n
+	lfResult := Parse("docker", dockerHelp)
+	crlfInput := strings.ReplaceAll(dockerHelp, "\n", "\r\n")
+	crlfResult := Parse("docker", crlfInput)
+
+	if len(crlfResult.Children) != len(lfResult.Children) {
+		t.Errorf("children: CRLF got %d, LF got %d", len(crlfResult.Children), len(lfResult.Children))
+	}
+	if len(crlfResult.Options) != len(lfResult.Options) {
+		t.Errorf("options: CRLF got %d, LF got %d", len(crlfResult.Options), len(lfResult.Options))
+	}
+	if crlfResult.Description != lfResult.Description {
+		t.Errorf("desc mismatch:\n  CRLF: %q\n  LF:   %q", crlfResult.Description, lfResult.Description)
+	}
+}
+
 func TestParseUsageFallbackOnlyWhenFewOptions(t *testing.T) {
 	// GNU-style help with enough options should NOT trigger usage fallback
 	help := `Usage: tool [-abc] [options]

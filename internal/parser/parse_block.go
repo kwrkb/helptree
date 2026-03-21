@@ -32,15 +32,37 @@ func parseCommandBlock(node *model.Node, b *Block, rootName string) {
 	}
 
 	var lastDesc *string
+	dashSeparators := []string{" - ", " – ", " — "}
 
 	for _, line := range b.Lines {
-		// Split at description column first (before prefix stripping)
-		key, desc := splitAtColumn(line, b.DescCol)
-		keyTrimmed := strings.TrimSpace(key)
-		descTrimmed := strings.TrimSpace(desc)
+		var keyTrimmed, descTrimmed string
 
-		// Strip binary name prefix from the key part
-		keyTrimmed = strings.TrimSpace(stripBinaryPrefix("  "+keyTrimmed, rootName))
+		// For dash-separated blocks, split at the dash per-line
+		// instead of using a fixed column (command names vary in length).
+		if b.Separator == SepDash {
+			stripped := strings.TrimSpace(stripBinaryPrefix(line, rootName))
+			for _, dashPat := range dashSeparators {
+				if idx := strings.Index(stripped, dashPat); idx >= 0 {
+					keyTrimmed = strings.TrimSpace(stripped[:idx])
+					descTrimmed = strings.TrimSpace(stripped[idx+len(dashPat):])
+					break
+				}
+			}
+			if keyTrimmed == "" {
+				// No dash found — treat as continuation line
+				if lastDesc != nil && stripped != "" {
+					*lastDesc += " " + stripped
+				}
+				continue
+			}
+		} else {
+			// Split at description column first (before prefix stripping)
+			key, desc := splitAtColumn(line, b.DescCol)
+			keyTrimmed = strings.TrimSpace(key)
+			descTrimmed = strings.TrimSpace(desc)
+			// Strip binary name prefix from the key part
+			keyTrimmed = strings.TrimSpace(stripBinaryPrefix("  "+keyTrimmed, rootName))
+		}
 
 		if keyTrimmed == "" {
 			// Continuation line — append to previous description
@@ -48,15 +70,6 @@ func parseCommandBlock(node *model.Node, b *Block, rootName string) {
 				*lastDesc += " " + descTrimmed
 			}
 			continue
-		}
-
-		// Handle dash separator: strip trailing " - " from key if present
-		if b.Separator == SepDash {
-			keyTrimmed = strings.TrimRight(keyTrimmed, " ")
-			keyTrimmed = strings.TrimSuffix(keyTrimmed, "-")
-			keyTrimmed = strings.TrimSuffix(keyTrimmed, "–")
-			keyTrimmed = strings.TrimSuffix(keyTrimmed, "—")
-			keyTrimmed = strings.TrimSpace(keyTrimmed)
 		}
 
 		// Extract command name: first word of the key
