@@ -95,16 +95,20 @@ func parseCommandBlockSingle(node *model.Node, b *Block) {
 
 // parseOptionBlock extracts options from a classified block.
 func parseOptionBlock(node *model.Node, b *Block) {
-	// Single pass: check for special formats (inline multi-options, bracket-style)
-	for _, line := range b.Lines {
+	// Pre-scan: check for special formats (inline multi-options, bracket-style)
+	// and track which lines were consumed so we can skip them in the main loop.
+	specialLines := map[int]bool{}
+	for i, line := range b.Lines {
 		if inlineOpts := parseInlineMultiOptions(line); len(inlineOpts) > 0 {
 			node.Options = append(node.Options, inlineOpts...)
-			return
+			specialLines[i] = true
+			continue
 		}
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") {
 			if bracketOpts := parseBracketOptions(line); len(bracketOpts) > 0 {
 				node.Options = append(node.Options, bracketOpts...)
+				specialLines[i] = true
 			}
 		}
 	}
@@ -118,15 +122,16 @@ func parseOptionBlock(node *model.Node, b *Block) {
 
 	var lastDesc *string
 
-	for _, line := range b.Lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
+	for i, line := range b.Lines {
+		// Skip lines already consumed by special format handling
+		if specialLines[i] {
 			lastDesc = nil
 			continue
 		}
 
-		// Skip bracket-style lines (already handled above)
-		if strings.HasPrefix(trimmed, "[") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			lastDesc = nil
 			continue
 		}
 

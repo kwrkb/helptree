@@ -308,11 +308,26 @@ func inferSectionFromContent(b *Block) string {
 		if trimmed == "" {
 			continue
 		}
-		if strings.HasPrefix(trimmed, "-") {
-			optionLike++
-		} else if !strings.Contains(trimmed, " ") || (b.Kind == BlockTable && b.DescCol > 0) {
-			// Single word or table with key column that doesn't start with "-"
-			commandLike++
+
+		if b.Kind == BlockTable && b.DescCol > 0 {
+			// For table blocks, examine only the key column to avoid
+			// counting wrapped description continuation lines as commands.
+			key, _ := splitAtColumn(line, b.DescCol)
+			keyTrimmed := strings.TrimSpace(key)
+			if keyTrimmed == "" {
+				continue // continuation line
+			}
+			if strings.HasPrefix(keyTrimmed, "-") {
+				optionLike++
+			} else {
+				commandLike++
+			}
+		} else {
+			if strings.HasPrefix(trimmed, "-") {
+				optionLike++
+			} else if !strings.Contains(trimmed, " ") {
+				commandLike++
+			}
 		}
 	}
 
