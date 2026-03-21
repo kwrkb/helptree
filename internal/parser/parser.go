@@ -11,6 +11,7 @@ var (
 	// Section detection
 	sectionHeaderRe    = regexp.MustCompile(`^(?:The\s+)?([A-Za-z][\w\s()]*[\w)])\s*:`)
 	uppercaseSectionRe = regexp.MustCompile(`^\s+([A-Z][A-Z ]{3,}[A-Z])\s*$`)
+	bareSectionRe      = regexp.MustCompile(`(?i)^\s*(Synopsis)\s*$`)
 
 	// Comma-separated command list: "    access, adduser, audit, bugs, ..."
 	commaSepListRe = regexp.MustCompile(`^\s{2,}(\w[\w-]*(?:,\s*\w[\w-]*){2,}),?\s*$`)
@@ -23,8 +24,9 @@ var (
 	pipeSepOptsRe        = regexp.MustCompile(`\[((?:-[A-Za-z]\s*\|\s*)+(?:-[A-Za-z]))\]`)
 	bracketShortArgRe    = regexp.MustCompile(`\[-([A-Za-z])\s+(\w+)\]`)
 	bracketShortOptArgRe = regexp.MustCompile(`\[-([A-Za-z])\[(\w+)\]\]`)
-	bracketLongArgRe     = regexp.MustCompile(`\[--([\w-]+)=([\w]+)\]`)
-	bracketLongRe        = regexp.MustCompile(`\[--([\w-]+)\]`)
+	bracketLongArgRe      = regexp.MustCompile(`\[--([\w-]+)=([\w]+)\]`)
+	bracketLongSpaceArgRe = regexp.MustCompile(`\[--([\w-]+)\s+(\w+)\]`)
+	bracketLongRe         = regexp.MustCompile(`\[--([\w-]+)\]`)
 
 	// npx-style bracket options
 	bracketPipeOptRe    = regexp.MustCompile(`(-[A-Za-z])\|(--[\w-]+)`)
@@ -138,10 +140,32 @@ func Parse(name, helpText string) *model.Node {
 		}
 	}
 
+	// Fallback: extract from iproute2-style OBJECT/OPTIONS inline definitions
+	extractIproute2Definitions(lines, node)
+
+	// Fallback: extract commands from category:comma format (e.g., snap)
+	// Only when no structure was found at all (no children AND no options).
+	if len(node.Children) == 0 && len(node.Options) == 0 {
+		extractCategoryCommands(lines, node)
+	}
+
 	// Fallback: if few options were found, try extracting from usage lines.
 	if len(node.Options) < 5 {
 		usageOpts := extractUsageOptions(lines)
 		node.Options = mergeOptions(node.Options, usageOpts)
+	}
+
+	// Fallback: extract options from brace-pipe patterns like { --help | --manual | --version }
+	if len(node.Options) < 5 {
+		braceOpts := extractBracePipeOptions(lines)
+		node.Options = mergeOptions(node.Options, braceOpts)
+	}
+
+	// Fallback: extract bracket options from lines starting with command name
+	// (e.g., "adduser [--uid id] [--firstuid id] ...")
+	if len(node.Options) < 5 {
+		cmdOpts := extractCommandNameBracketOptions(lines, name)
+		node.Options = mergeOptions(node.Options, cmdOpts)
 	}
 
 	return node
@@ -294,11 +318,16 @@ func extractUsageOptions(lines []string) []model.Option {
 		opts = append(opts, model.Option{Long: "--" + m[1], Arg: m[2]})
 	}
 
+	// Extract [--uid id] style (long option with space-separated argument)
+	for _, m := range bracketLongSpaceArgRe.FindAllStringSubmatch(usageText, -1) {
+		opts = append(opts, model.Option{Long: "--" + m[1], Arg: m[2]})
+	}
+
 	// Extract [--null] style (long option, no argument)
-	// Avoid matching ones already captured by bracketLongArgRe
+	// Avoid matching ones already captured by bracketLongArgRe or bracketLongSpaceArgRe
 	for _, m := range bracketLongRe.FindAllStringSubmatch(usageText, -1) {
 		longName := "--" + m[1]
-		if !strings.Contains(usageText, "[--"+m[1]+"=") {
+		if !strings.Contains(usageText, "[--"+m[1]+"=") && !strings.Contains(usageText, "[--"+m[1]+" ") {
 			opts = append(opts, model.Option{Long: longName})
 		}
 	}
@@ -453,6 +482,160 @@ func parseBracketOptions(line string) []model.Option {
 
 	if len(opts) == 0 {
 		return nil
+	}
+	return opts
+}
+
+// extractCategoryCommands extracts commands from category:comma format like
+// "           Basics: find, info, install, remove, list, components"
+func extractCategoryCommands(lines []string, node *model.Node) {
+	catCmdRe := regexp.MustCompile(`^\s+[\w .]+:\s+([\w-]+(?:,\s+[\w-]+){2,})`)
+	seen := make(map[string]bool)
+	for _, line := range lines {
+		if m := catCmdRe.FindStringSubmatch(line); m != nil {
+			parts := strings.Split(m[1], ",")
+			for _, p := range parts {
+				name := strings.TrimSpace(p)
+				if name != "" && !seen[name] {
+					seen[name] = true
+					node.Children = append(node.Children, &model.Node{Name: name})
+				}
+			}
+		}
+	}
+}
+
+// extractIproute2Definitions parses iproute2-style inline definitions:
+//
+//	OBJECT := { address | link | route | ... }
+//	OPTIONS := { -V[ersion] | -s[tatistics] | ... }
+func extractIproute2Definitions(lines []string, node *model.Node) {
+	objectDefRe := regexp.MustCompile(`OBJECT\s*:=\s*\{`)
+	optionsDefRe := regexp.MustCompile(`OPTIONS\s*:=\s*\{`)
+	abbrOptRe := regexp.MustCompile(`^-([A-Za-z])\[(\w+)\]$`)
+
+	// Collect tokens from a definition that may span multiple lines
+	collectTokens := func(startIdx int) []string {
+		var buf strings.Builder
+		for i := startIdx; i < len(lines); i++ {
+			buf.WriteString(lines[i])
+			buf.WriteString(" ")
+			if strings.Contains(lines[i], "}") {
+				break
+			}
+		}
+		s := buf.String()
+		// Extract content between { and }
+		braceStart := strings.Index(s, "{")
+		braceEnd := strings.LastIndex(s, "}")
+		if braceStart < 0 || braceEnd <= braceStart {
+			return nil
+		}
+		inner := s[braceStart+1 : braceEnd]
+		parts := strings.Split(inner, "|")
+		var tokens []string
+		for _, p := range parts {
+			t := strings.TrimSpace(p)
+			if t != "" {
+				tokens = append(tokens, t)
+			}
+		}
+		return tokens
+	}
+
+	for i, line := range lines {
+		if objectDefRe.MatchString(line) && len(node.Children) == 0 {
+			tokens := collectTokens(i)
+			seen := make(map[string]bool)
+			for _, t := range tokens {
+				name := strings.Fields(t)[0]
+				if seen[name] || name == "help" {
+					continue
+				}
+				seen[name] = true
+				node.Children = append(node.Children, &model.Node{Name: name})
+			}
+		}
+		if optionsDefRe.MatchString(line) && len(node.Options) == 0 {
+			tokens := collectTokens(i)
+			for _, t := range tokens {
+				t = strings.Fields(t)[0]
+				if m := abbrOptRe.FindStringSubmatch(t); m != nil {
+					short := "-" + m[1]
+					long := "--" + strings.ToLower(string(m[1])) + m[2]
+					node.Options = append(node.Options, model.Option{Short: short, Long: long})
+				} else if strings.HasPrefix(t, "--") {
+					node.Options = append(node.Options, model.Option{Long: t})
+				} else if strings.HasPrefix(t, "-") && len(t) == 2 {
+					node.Options = append(node.Options, model.Option{Short: t})
+				}
+			}
+		}
+	}
+}
+
+// extractBracePipeOptions extracts options from brace-pipe patterns like
+// "xdg-open { --help | --manual | --version }".
+func extractBracePipeOptions(lines []string) []model.Option {
+	bracePipeRe := regexp.MustCompile(`\{\s*(--[\w-]+(?:\s*\|\s*--[\w-]+)*)\s*\}`)
+	var opts []model.Option
+	for _, line := range lines {
+		for _, m := range bracePipeRe.FindAllStringSubmatch(line, -1) {
+			parts := strings.Split(m[1], "|")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if strings.HasPrefix(p, "--") {
+					opts = append(opts, model.Option{Long: p})
+				}
+			}
+		}
+	}
+	return opts
+}
+
+// extractCommandNameBracketOptions extracts [--option] patterns from lines
+// that start with the command name (no "Usage:" prefix).
+// e.g., "adduser [--uid id] [--firstuid id] ..."
+func extractCommandNameBracketOptions(lines []string, name string) []model.Option {
+	var usageParts []string
+	inUsage := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !inUsage && strings.HasPrefix(trimmed, name+" ") && strings.Contains(trimmed, "[--") {
+			usageParts = append(usageParts, line)
+			inUsage = true
+			continue
+		}
+		if inUsage {
+			if trimmed == "" || sectionHeaderRe.MatchString(line) || uppercaseSectionRe.MatchString(line) {
+				inUsage = false
+				continue
+			}
+			// Continuation lines: indented and contain brackets
+			if (line[0] == ' ' || line[0] == '\t') && strings.Contains(trimmed, "[") {
+				usageParts = append(usageParts, line)
+				continue
+			}
+			inUsage = false
+		}
+	}
+	if len(usageParts) == 0 {
+		return nil
+	}
+
+	usageText := strings.Join(usageParts, " ")
+	var opts []model.Option
+	for _, m := range bracketLongArgRe.FindAllStringSubmatch(usageText, -1) {
+		opts = append(opts, model.Option{Long: "--" + m[1], Arg: m[2]})
+	}
+	for _, m := range bracketLongSpaceArgRe.FindAllStringSubmatch(usageText, -1) {
+		opts = append(opts, model.Option{Long: "--" + m[1], Arg: m[2]})
+	}
+	for _, m := range bracketLongRe.FindAllStringSubmatch(usageText, -1) {
+		longName := "--" + m[1]
+		if !strings.Contains(usageText, "[--"+m[1]+"=") && !strings.Contains(usageText, "[--"+m[1]+" ") {
+			opts = append(opts, model.Option{Long: longName})
+		}
 	}
 	return opts
 }
