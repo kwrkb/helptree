@@ -79,8 +79,8 @@ type Model struct {
 	searchQuery  string
 	searchHits   map[int]bool // set of item indices that match
 	searchOrder  []int        // ordered list of hit indices for n/N navigation
-	loading       bool
-	cachedTreeW   int // cached max tree line width, updated on reflatten
+	loading      bool
+	cachedTreeW  int // cached max tree line width, updated on reflatten
 }
 
 // New creates a new Model from a root node.
@@ -525,7 +525,7 @@ func (m Model) View() string {
 	if m.loading {
 		titleText += "[loading...] "
 	}
-	title := titleStyle.Render(titleText)
+	title := titleStyle.Render(truncateWidth(titleText, m.width))
 
 	// Tree pane (left). Inner = outer - border(2). No padding.
 	treeInnerW := treeWidth - 2
@@ -569,7 +569,7 @@ func (m Model) View() string {
 	}
 
 	// Summary pane (top-right)
-	summaryContent := renderSummary(selected, rightContentW)
+	summaryContent := renderSummary(selected, rightContentW, summaryInnerH)
 	summaryPane := paneStyle.
 		Width(rightPaneW).
 		Height(summaryInnerH).
@@ -593,21 +593,24 @@ func (m Model) View() string {
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, treePane, rightPanes)
 
 	// Bottom bar
-	var bottom string
+	var bottomText string
+	bottomStyle := helpStyle
 	switch m.mode {
 	case modeSearch:
-		bottom = searchStyle.Render(fmt.Sprintf("  /%s▏ (%d matches)", m.searchQuery, len(m.searchHits)))
+		bottomStyle = searchStyle
+		bottomText = fmt.Sprintf("  /%s▏ (%d matches)", m.searchQuery, len(m.searchHits))
 	default:
 		if m.searchQuery != "" {
-			bottom = helpStyle.Render(fmt.Sprintf("  /%s (%d matches)  n/N: next/prev  esc: clear  ?: help", m.searchQuery, len(m.searchHits)))
+			bottomText = fmt.Sprintf("  /%s (%d matches)  n/N: next/prev  esc: clear  ?: help", m.searchQuery, len(m.searchHits))
 		} else {
 			nav := "j/k: navigate"
 			if m.focus == focusDetail {
 				nav = "j/k: scroll detail"
 			}
-			bottom = helpStyle.Render(fmt.Sprintf("  %s  tab: switch focus  enter/l: expand  h: collapse  /: search  ?: help  q: quit", nav))
+			bottomText = fmt.Sprintf("  %s  tab: switch focus  enter/l: expand  h: collapse  /: search  ?: help  q: quit", nav)
 		}
 	}
+	bottom := bottomStyle.Render(truncateWidth(bottomText, m.width))
 
 	return title + "\n" + panes + "\n" + bottom
 }

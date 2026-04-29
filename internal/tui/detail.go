@@ -84,7 +84,7 @@ func truncateWidth(s string, width int) string {
 }
 
 // renderSummary renders the summary pane (name, description, usage).
-func renderSummary(node *model.Node, width int) string {
+func renderSummary(node *model.Node, width, height int) string {
 	if node == nil {
 		return ""
 	}
@@ -115,7 +115,20 @@ func renderSummary(node *model.Node, width int) string {
 		b.WriteString("\n" + statusHintStyle.Render("  [Press Enter to load subcommands]"))
 	}
 
-	return b.String()
+	content := b.String()
+	if height <= 0 {
+		return ""
+	}
+
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+	if len(lines) > height {
+		lines = lines[:height]
+		if height > 1 {
+			lines[height-1] = statusHintStyle.Render(truncateWidth("  ...", width))
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 // renderDetail renders the detail pane (subcommands and options) with scroll support.
