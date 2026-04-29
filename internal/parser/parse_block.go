@@ -316,13 +316,14 @@ func splitAtColumn(line string, descCol int) (string, string) {
 }
 
 // extractCommandName extracts the command name from a key column string.
-// Handles: "command", "command [flags]", "command <args>", "[query..]"
+// Handles: "command", "command [flags]", "command <args>", "[query..]",
+// and "command:" (glab-style colon-suffixed names).
 func extractCommandName(key string) string {
 	fields := strings.Fields(key)
 	if len(fields) == 0 {
 		return ""
 	}
-	name := fields[0]
+	name := strings.TrimRight(fields[0], ":")
 	// Filter out option-like strings
 	if strings.HasPrefix(name, "-") {
 		return ""
