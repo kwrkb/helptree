@@ -132,6 +132,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
+		if m.mode != modeNormal {
+			return m, nil
+		}
 		if msg.Type == tea.MouseWheelUp {
 			if m.focus == focusTree {
 				if m.cursor > 0 {
@@ -337,10 +340,32 @@ func (m *Model) recalcTreeWidth() {
 	m.cachedTreeW = maxW
 }
 
-// scrollDetailBy adjusts m.detailScroll by delta and clamps it to a coarse
-// upper bound derived from the focused node's content. The renderer applies
-// a tighter clamp; this exists to prevent unbounded growth from repeated key
-// presses past the end of content.
+// detailViewportHeight returns the detail pane's inner row count, mirroring
+// the layout math in View().
+func (m Model) detailViewportHeight() int {
+	panesHeight := m.height - 4
+	if panesHeight < 4 {
+		panesHeight = 4
+	}
+	summaryHeight := panesHeight / 3
+	if summaryHeight < 4 {
+		summaryHeight = 4
+	}
+	if summaryHeight > panesHeight-3 {
+		summaryHeight = panesHeight - 3
+	}
+	if summaryHeight < 3 {
+		summaryHeight = 3
+	}
+	inner := (panesHeight - summaryHeight) - 2
+	if inner < 1 {
+		inner = 1
+	}
+	return inner
+}
+
+// scrollDetailBy adjusts m.detailScroll by delta and clamps it so the pane
+// stays filled with content (max scroll = totalRows - viewport).
 func (m *Model) scrollDetailBy(delta int) {
 	m.detailScroll += delta
 	if m.detailScroll < 0 {
@@ -361,7 +386,7 @@ func (m *Model) scrollDetailBy(delta int) {
 		}
 		rows += 1 + len(node.Options)
 	}
-	max := rows - 1
+	max := rows - m.detailViewportHeight()
 	if max < 0 {
 		max = 0
 	}

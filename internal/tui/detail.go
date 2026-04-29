@@ -44,8 +44,8 @@ const (
 )
 
 // truncateWidth shortens s so its display width fits within width cells,
-// appending "..." when truncation occurs. Width is computed via lipgloss.Width
-// so multi-byte runes are handled correctly.
+// appending "..." when truncation occurs. Iterates forward in O(N), accumulating
+// per-rune display width so multi-cell characters (e.g. CJK) stay correct.
 func truncateWidth(s string, width int) string {
 	if width <= 0 {
 		return ""
@@ -53,20 +53,34 @@ func truncateWidth(s string, width int) string {
 	if lipgloss.Width(s) <= width {
 		return s
 	}
-	runes := []rune(s)
+
+	// When width is too small to fit "...", return as many runes as fit.
 	if width <= 3 {
-		if len(runes) > width {
-			return string(runes[:width])
+		var b strings.Builder
+		w := 0
+		for _, r := range s {
+			rw := lipgloss.Width(string(r))
+			if w+rw > width {
+				break
+			}
+			b.WriteRune(r)
+			w += rw
 		}
-		return s
+		return b.String()
 	}
-	for i := len(runes); i > 0; i-- {
-		candidate := string(runes[:i])
-		if lipgloss.Width(candidate)+3 <= width {
-			return candidate + "..."
+
+	target := width - 3
+	var b strings.Builder
+	w := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if w+rw > target {
+			break
 		}
+		b.WriteRune(r)
+		w += rw
 	}
-	return "..."
+	return b.String() + "..."
 }
 
 // renderSummary renders the summary pane (name, description, usage).
