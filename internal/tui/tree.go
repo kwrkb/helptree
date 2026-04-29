@@ -53,6 +53,8 @@ func renderTreeLine(item flatItem, selected bool, width int) string {
 		} else {
 			prefix = "▶ "
 		}
+	} else if item.depth > 0 {
+		prefix = "○ "
 	}
 
 	name := item.node.Name

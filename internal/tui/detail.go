@@ -4,8 +4,70 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/kwrkb/helptree/internal/model"
 )
+
+var (
+	headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("12"))
+
+	subcmdNameStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("14"))
+
+	flagStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("6")).
+			Bold(true)
+
+	argStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("11"))
+
+	descStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("250"))
+
+	statusHintStyle = lipgloss.NewStyle().
+			Italic(true).
+			Foreground(lipgloss.Color("240"))
+
+	summaryTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("15")).
+				Background(lipgloss.Color("240")).
+				Padding(0, 1)
+)
+
+const (
+	subcmdNameCol = 20
+	optionFlagCol = 30
+)
+
+// truncateWidth shortens s so its display width fits within width cells,
+// appending "..." when truncation occurs. Width is computed via lipgloss.Width
+// so multi-byte runes are handled correctly.
+func truncateWidth(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+	runes := []rune(s)
+	if width <= 3 {
+		if len(runes) > width {
+			return string(runes[:width])
+		}
+		return s
+	}
+	for i := len(runes); i > 0; i-- {
+		candidate := string(runes[:i])
+		if lipgloss.Width(candidate)+3 <= width {
+			return candidate + "..."
+		}
+	}
+	return "..."
+}
 
 // renderSummary renders the summary pane (name, description, usage).
 func renderSummary(node *model.Node, width int) string {
@@ -15,19 +77,20 @@ func renderSummary(node *model.Node, width int) string {
 
 	var b strings.Builder
 
-	// Title
-	b.WriteString(fmt.Sprintf("╭─ %s ─╮\n", node.Name))
+	// Title with a background
+	b.WriteString(summaryTitleStyle.Render(node.Name) + "\n")
 
 	// Description
 	if node.Description != "" {
 		b.WriteString("\n")
-		b.WriteString(wrapText(node.Description, width))
+		b.WriteString(descStyle.Render(wrapText(node.Description, width)))
 		b.WriteString("\n")
 	}
 
 	// Usage
 	if node.Usage != "" {
-		b.WriteString("\nUsage:\n")
+		b.WriteString("\n")
+		b.WriteString(headerStyle.Render("Usage:") + "\n")
 		for _, line := range strings.Split(node.Usage, "\n") {
 			b.WriteString("  " + line + "\n")
 		}
@@ -35,7 +98,7 @@ func renderSummary(node *model.Node, width int) string {
 
 	// Status
 	if !node.Loaded {
-		b.WriteString("\n  [Press Enter to load subcommands]")
+		b.WriteString("\n" + statusHintStyle.Render("  [Press Enter to load subcommands]"))
 	}
 
 	return b.String()
@@ -51,31 +114,63 @@ func renderDetail(node *model.Node, width, height, scroll int) string {
 
 	// Subcommands
 	if len(node.Children) > 0 {
-		b.WriteString(fmt.Sprintf("Subcommands (%d):\n", len(node.Children)))
+		b.WriteString(headerStyle.Render(fmt.Sprintf("Subcommands (%d):", len(node.Children))) + "\n")
 		for _, child := range node.Children {
 			name := child.Name
 			if parts := strings.Fields(name); len(parts) > 0 {
 				name = parts[len(parts)-1]
 			}
-			line := fmt.Sprintf("  %-20s %s", name, child.Description)
-			if len(line) > width && width > 4 {
-				line = line[:width-4] + "..."
+
+			nameW := lipgloss.Width(name)
+			pad := subcmdNameCol - nameW
+			if pad < 1 {
+				pad = 1
 			}
-			b.WriteString(line + "\n")
+
+			descBudget := width - 2 - nameW - pad
+			desc := truncateWidth(child.Description, descBudget)
+
+			b.WriteString("  " + subcmdNameStyle.Render(name) + strings.Repeat(" ", pad) + descStyle.Render(desc) + "\n")
 		}
-		b.WriteString("\n")
 	}
 
 	// Options
 	if len(node.Options) > 0 {
-		b.WriteString(fmt.Sprintf("Options (%d):\n", len(node.Options)))
+		if len(node.Children) > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(headerStyle.Render(fmt.Sprintf("Options (%d):", len(node.Options))) + "\n")
 		for _, opt := range node.Options {
-			flag := opt.FullFlag()
-			line := fmt.Sprintf("  %-28s %s", flag, opt.Description)
-			if len(line) > width && width > 4 {
-				line = line[:width-4] + "..."
+			// Stylize flags and arguments. The unstyled form (used for width math)
+			// must mirror the visible character layout below.
+			var styledFlags, plainFlags string
+			switch {
+			case opt.Short != "" && opt.Long != "":
+				styledFlags = flagStyle.Render(opt.Short) + ", " + flagStyle.Render(opt.Long)
+				plainFlags = opt.Short + ", " + opt.Long
+			case opt.Long != "":
+				styledFlags = "    " + flagStyle.Render(opt.Long)
+				plainFlags = "    " + opt.Long
+			case opt.Short != "":
+				styledFlags = flagStyle.Render(opt.Short)
+				plainFlags = opt.Short
 			}
-			b.WriteString(line + "\n")
+
+			if opt.Arg != "" {
+				styledFlags += " " + argStyle.Render(opt.Arg)
+				plainFlags += " " + opt.Arg
+			}
+
+			flagW := lipgloss.Width(plainFlags)
+			pad := optionFlagCol - flagW
+			if pad < 1 {
+				pad = 1
+			}
+
+			descBudget := width - 2 - flagW - pad
+			desc := truncateWidth(opt.Description, descBudget)
+
+			b.WriteString("  " + styledFlags + strings.Repeat(" ", pad) + descStyle.Render(desc) + "\n")
 		}
 	}
 

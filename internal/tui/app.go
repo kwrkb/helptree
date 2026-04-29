@@ -57,6 +57,13 @@ type nodeLoadedMsg struct {
 	err    error
 }
 
+type focus int
+
+const (
+	focusTree focus = iota
+	focusDetail
+)
+
 // Model is the main Bubble Tea model.
 type Model struct {
 	root         *model.Node
@@ -68,6 +75,7 @@ type Model struct {
 	height       int
 	ready        bool
 	mode         mode
+	focus        focus
 	searchQuery  string
 	searchHits   map[int]bool // set of item indices that match
 	searchOrder  []int        // ordered list of hit indices for n/N navigation
@@ -83,6 +91,7 @@ func New(root *model.Node, rootCmd string) Model {
 		root:    root,
 		rootCmd: rootCmd,
 		items:   items,
+		focus:   focusTree,
 	}
 	m.recalcTreeWidth()
 	return m
@@ -122,6 +131,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.MouseMsg:
+		if msg.Type == tea.MouseWheelUp {
+			if m.focus == focusTree {
+				if m.cursor > 0 {
+					m.cursor--
+					m.detailScroll = 0
+				}
+			} else {
+				m.scrollDetailBy(-3)
+			}
+		} else if msg.Type == tea.MouseWheelDown {
+			if m.focus == focusTree {
+				if m.cursor < len(m.items)-1 {
+					m.cursor++
+					m.detailScroll = 0
+				}
+			} else {
+				m.scrollDetailBy(3)
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeHelp:
@@ -141,16 +172,31 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
+	case "tab":
+		if m.focus == focusTree {
+			m.focus = focusDetail
+		} else {
+			m.focus = focusTree
+		}
+
 	case "j", "down":
-		if m.cursor < len(m.items)-1 {
-			m.cursor++
-			m.detailScroll = 0
+		if m.focus == focusTree {
+			if m.cursor < len(m.items)-1 {
+				m.cursor++
+				m.detailScroll = 0
+			}
+		} else {
+			m.scrollDetailBy(1)
 		}
 
 	case "k", "up":
-		if m.cursor > 0 {
-			m.cursor--
-			m.detailScroll = 0
+		if m.focus == focusTree {
+			if m.cursor > 0 {
+				m.cursor--
+				m.detailScroll = 0
+			}
+		} else {
+			m.scrollDetailBy(-1)
 		}
 
 	case "g":
@@ -213,13 +259,10 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailScroll = 0
 
 	case "ctrl+d":
-		m.detailScroll += 5
+		m.scrollDetailBy(5)
 
 	case "ctrl+u":
-		m.detailScroll -= 5
-		if m.detailScroll < 0 {
-			m.detailScroll = 0
-		}
+		m.scrollDetailBy(-5)
 
 	case "esc":
 		if m.searchQuery != "" {
@@ -292,6 +335,39 @@ func (m *Model) recalcTreeWidth() {
 		}
 	}
 	m.cachedTreeW = maxW
+}
+
+// scrollDetailBy adjusts m.detailScroll by delta and clamps it to a coarse
+// upper bound derived from the focused node's content. The renderer applies
+// a tighter clamp; this exists to prevent unbounded growth from repeated key
+// presses past the end of content.
+func (m *Model) scrollDetailBy(delta int) {
+	m.detailScroll += delta
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
+	}
+	if m.cursor >= len(m.items) {
+		m.detailScroll = 0
+		return
+	}
+	node := m.items[m.cursor].node
+	rows := 0
+	if len(node.Children) > 0 {
+		rows += 1 + len(node.Children)
+	}
+	if len(node.Options) > 0 {
+		if rows > 0 {
+			rows++ // blank line between sections
+		}
+		rows += 1 + len(node.Options)
+	}
+	max := rows - 1
+	if max < 0 {
+		max = 0
+	}
+	if m.detailScroll > max {
+		m.detailScroll = max
+	}
 }
 
 // reflattenTree rebuilds the flat item list and updates search hits if active.
@@ -424,7 +500,11 @@ func (m Model) View() string {
 
 	// Tree pane (left, full height)
 	treeContent := m.renderTreePane(treeWidth-4, contentHeight)
-	treePane := activePaneStyle.
+	treePaneS := paneStyle
+	if m.focus == focusTree {
+		treePaneS = activePaneStyle
+	}
+	treePane := treePaneS.
 		Width(treeWidth - 2).
 		Height(contentHeight).
 		Render(treeContent)
@@ -444,7 +524,11 @@ func (m Model) View() string {
 
 	// Detail pane (bottom-right)
 	detailContent := renderDetail(selected, rightWidth-4, detailHeight, m.detailScroll)
-	detailPane := paneStyle.
+	detailPaneS := paneStyle
+	if m.focus == focusDetail {
+		detailPaneS = activePaneStyle
+	}
+	detailPane := detailPaneS.
 		Width(rightWidth - 2).
 		Height(detailHeight).
 		Render(detailContent)
@@ -462,7 +546,11 @@ func (m Model) View() string {
 		if m.searchQuery != "" {
 			bottom = helpStyle.Render(fmt.Sprintf("  /%s (%d matches)  n/N: next/prev  esc: clear  ?: help", m.searchQuery, len(m.searchHits)))
 		} else {
-			bottom = helpStyle.Render("  j/k: navigate  enter/l: expand  h: collapse  /: search  ?: help  q: quit")
+			nav := "j/k: navigate"
+			if m.focus == focusDetail {
+				nav = "j/k: scroll detail"
+			}
+			bottom = helpStyle.Render(fmt.Sprintf("  %s  tab: switch focus  enter/l: expand  h: collapse  /: search  ?: help  q: quit", nav))
 		}
 	}
 
@@ -545,12 +633,15 @@ func (m Model) renderHelpOverlay() string {
 	help := `╭─ Keybindings ───────────────────────╮
 
  Navigation
-   j / ↓       Move down
-   k / ↑       Move up
+   j / ↓       Move down (or scroll detail when focused)
+   k / ↑       Move up   (or scroll detail when focused)
    PgDn/Ctrl+f Page down
    PgUp/Ctrl+b Page up
    g           Go to top
    G           Go to bottom
+
+ Focus
+   Tab         Switch focus between Tree and Detail
 
  Tree
    Enter / l   Expand / Load children
@@ -566,6 +657,10 @@ func (m Model) renderHelpOverlay() string {
  Detail Pane
    Ctrl+d      Scroll detail down
    Ctrl+u      Scroll detail up
+
+ Mouse
+   Wheel       Scroll the focused pane
+   (Hold Shift to select text in most terminals)
 
  General
    ?           Show this help
