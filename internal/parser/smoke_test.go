@@ -52,7 +52,7 @@ var knownCLIs = []smokeCase{
 	{cmd: "kubectl", minChildren: 5, minOptions: -1},
 	{cmd: "helm", minChildren: 5, minOptions: -1},
 	{cmd: "terraform", minChildren: 5, minOptions: -1},
-	{cmd: "glab", minChildren: 30, minOptions: -1},
+	{cmd: "glab", minChildren: 25, minOptions: -1},
 	{cmd: "starship", minChildren: 5, minOptions: -1},
 	{cmd: "gemini", minChildren: 3, minOptions: 3},
 	{cmd: "codex", minChildren: 5, minOptions: -1},

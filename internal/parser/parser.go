@@ -10,7 +10,7 @@ import (
 var (
 	// Section detection
 	sectionHeaderRe    = regexp.MustCompile(`^(?:The\s+)?([A-Za-z][\w\s()]*[\w)])\s*:`)
-	uppercaseSectionRe = regexp.MustCompile(`^\s+([A-Z][A-Z ]{3,}[A-Z])\s*$`)
+	uppercaseSectionRe = regexp.MustCompile(`^\s*([A-Z][A-Z ]{3,}[A-Z])\s*$`)
 	bareSectionRe      = regexp.MustCompile(`(?i)^\s*(Synopsis)\s*$`)
 
 	// Comma-separated command list: "    access, adduser, audit, bugs, ..."

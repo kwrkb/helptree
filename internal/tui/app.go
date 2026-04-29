@@ -57,6 +57,13 @@ type nodeLoadedMsg struct {
 	err    error
 }
 
+type focus int
+
+const (
+	focusTree focus = iota
+	focusDetail
+)
+
 // Model is the main Bubble Tea model.
 type Model struct {
 	root         *model.Node
@@ -68,6 +75,7 @@ type Model struct {
 	height       int
 	ready        bool
 	mode         mode
+	focus        focus
 	searchQuery  string
 	searchHits   map[int]bool // set of item indices that match
 	searchOrder  []int        // ordered list of hit indices for n/N navigation
@@ -83,6 +91,7 @@ func New(root *model.Node, rootCmd string) Model {
 		root:    root,
 		rootCmd: rootCmd,
 		items:   items,
+		focus:   focusTree,
 	}
 	m.recalcTreeWidth()
 	return m
@@ -122,6 +131,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.MouseMsg:
+		if m.mode != modeNormal {
+			return m, nil
+		}
+		if msg.Type == tea.MouseWheelUp {
+			if m.focus == focusTree {
+				if m.cursor > 0 {
+					m.cursor--
+					m.detailScroll = 0
+				}
+			} else {
+				m.scrollDetailBy(-3)
+			}
+		} else if msg.Type == tea.MouseWheelDown {
+			if m.focus == focusTree {
+				if m.cursor < len(m.items)-1 {
+					m.cursor++
+					m.detailScroll = 0
+				}
+			} else {
+				m.scrollDetailBy(3)
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		switch m.mode {
 		case modeHelp:
@@ -141,16 +175,31 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
+	case "tab":
+		if m.focus == focusTree {
+			m.focus = focusDetail
+		} else {
+			m.focus = focusTree
+		}
+
 	case "j", "down":
-		if m.cursor < len(m.items)-1 {
-			m.cursor++
-			m.detailScroll = 0
+		if m.focus == focusTree {
+			if m.cursor < len(m.items)-1 {
+				m.cursor++
+				m.detailScroll = 0
+			}
+		} else {
+			m.scrollDetailBy(1)
 		}
 
 	case "k", "up":
-		if m.cursor > 0 {
-			m.cursor--
-			m.detailScroll = 0
+		if m.focus == focusTree {
+			if m.cursor > 0 {
+				m.cursor--
+				m.detailScroll = 0
+			}
+		} else {
+			m.scrollDetailBy(-1)
 		}
 
 	case "g":
@@ -213,13 +262,10 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detailScroll = 0
 
 	case "ctrl+d":
-		m.detailScroll += 5
+		m.scrollDetailBy(5)
 
 	case "ctrl+u":
-		m.detailScroll -= 5
-		if m.detailScroll < 0 {
-			m.detailScroll = 0
-		}
+		m.scrollDetailBy(-5)
 
 	case "esc":
 		if m.searchQuery != "" {
@@ -292,6 +338,61 @@ func (m *Model) recalcTreeWidth() {
 		}
 	}
 	m.cachedTreeW = maxW
+}
+
+// detailViewportHeight returns the detail pane's inner row count, mirroring
+// the layout math in View().
+func (m Model) detailViewportHeight() int {
+	panesHeight := m.height - 4
+	if panesHeight < 4 {
+		panesHeight = 4
+	}
+	summaryHeight := panesHeight / 3
+	if summaryHeight < 4 {
+		summaryHeight = 4
+	}
+	if summaryHeight > panesHeight-3 {
+		summaryHeight = panesHeight - 3
+	}
+	if summaryHeight < 3 {
+		summaryHeight = 3
+	}
+	inner := (panesHeight - summaryHeight) - 2
+	if inner < 1 {
+		inner = 1
+	}
+	return inner
+}
+
+// scrollDetailBy adjusts m.detailScroll by delta and clamps it so the pane
+// stays filled with content (max scroll = totalRows - viewport).
+func (m *Model) scrollDetailBy(delta int) {
+	m.detailScroll += delta
+	if m.detailScroll < 0 {
+		m.detailScroll = 0
+	}
+	if m.cursor >= len(m.items) {
+		m.detailScroll = 0
+		return
+	}
+	node := m.items[m.cursor].node
+	rows := 0
+	if len(node.Children) > 0 {
+		rows += 1 + len(node.Children)
+	}
+	if len(node.Options) > 0 {
+		if rows > 0 {
+			rows++ // blank line between sections
+		}
+		rows += 1 + len(node.Options)
+	}
+	max := rows - m.detailViewportHeight()
+	if max < 0 {
+		max = 0
+	}
+	if m.detailScroll > max {
+		m.detailScroll = max
+	}
 }
 
 // reflattenTree rebuilds the flat item list and updates search hits if active.
@@ -388,32 +489,36 @@ func (m Model) View() string {
 		return m.renderHelpOverlay()
 	}
 
-	// Tree width from cached content width (updated on reflatten)
-	treeWidth := m.cachedTreeW + 4 // padding + border
+	// Outer layout (border-inclusive sizes).
+	// title (1) + panes (panesHeight) + bottom (1) ≈ m.height; the extra
+	// margin gives bubbletea breathing room at the bottom of the screen.
+	panesHeight := m.height - 4
+	if panesHeight < 4 {
+		panesHeight = 4
+	}
+
+	// Tree pane outer width (border included). Cached content width + 2 borders.
+	treeWidth := m.cachedTreeW + 2
 	if treeWidth < 20 {
 		treeWidth = 20
 	}
-	// Cap at 50% of terminal width so right panes have enough space
 	if treeWidth > m.width/2 {
 		treeWidth = m.width / 2
 	}
-	rightWidth := m.width - treeWidth - 4
-	contentHeight := m.height - 4
+	rightWidth := m.width - treeWidth
 
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
-
-	// Summary pane height: ~20% of content, min 4
-	summaryHeight := contentHeight / 5
+	// Summary pane outer height: ~1/3 of pane area, min 4.
+	summaryHeight := panesHeight / 3
 	if summaryHeight < 4 {
 		summaryHeight = 4
 	}
-	// Detail pane gets the rest (minus border gap)
-	detailHeight := contentHeight - summaryHeight - 2
-	if detailHeight < 3 {
-		detailHeight = 3
+	if summaryHeight > panesHeight-3 {
+		summaryHeight = panesHeight - 3
 	}
+	if summaryHeight < 3 {
+		summaryHeight = 3
+	}
+	detailHeight := panesHeight - summaryHeight
 
 	// Title
 	titleText := fmt.Sprintf(" helptree: %s ", m.rootCmd)
@@ -422,34 +527,68 @@ func (m Model) View() string {
 	}
 	title := titleStyle.Render(titleText)
 
-	// Tree pane (left, full height)
-	treeContent := m.renderTreePane(treeWidth-4, contentHeight)
-	treePane := activePaneStyle.
-		Width(treeWidth - 2).
-		Height(contentHeight).
+	// Tree pane (left). Inner = outer - border(2). No padding.
+	treeInnerW := treeWidth - 2
+	treeInnerH := panesHeight - 2
+	treeContent := m.renderTreePane(treeInnerW, treeInnerH)
+	treePaneS := paneStyle
+	if m.focus == focusTree {
+		treePaneS = activePaneStyle
+	}
+	treePane := treePaneS.
+		Width(treeInnerW).
+		Height(treeInnerH).
 		Render(treeContent)
 
-	// Right side: summary + detail
+	// Selected node for right panes
 	var selected *model.Node
 	if m.cursor < len(m.items) {
 		selected = m.items[m.cursor].node
 	}
 
+	// Right panes: lipgloss.Width(w) sets the area inside the border
+	// (padding is consumed within w). So:
+	//   outer width  = Width(w) + border(2)        → w = rightWidth - 2
+	//   content width = w - padding(2)              = rightWidth - 4
+	//   outer height = Height(h) + border(2)        → h = paneH - 2
+	rightPaneW := rightWidth - 2
+	if rightPaneW < 1 {
+		rightPaneW = 1
+	}
+	rightContentW := rightWidth - 4
+	if rightContentW < 1 {
+		rightContentW = 1
+	}
+	summaryInnerH := summaryHeight - 2
+	if summaryInnerH < 1 {
+		summaryInnerH = 1
+	}
+	detailInnerH := detailHeight - 2
+	if detailInnerH < 1 {
+		detailInnerH = 1
+	}
+
 	// Summary pane (top-right)
-	summaryContent := renderSummary(selected, rightWidth-4)
+	summaryContent := renderSummary(selected, rightContentW)
 	summaryPane := paneStyle.
-		Width(rightWidth - 2).
-		Height(summaryHeight).
+		Width(rightPaneW).
+		Height(summaryInnerH).
+		Padding(0, 1).
 		Render(summaryContent)
 
 	// Detail pane (bottom-right)
-	detailContent := renderDetail(selected, rightWidth-4, detailHeight, m.detailScroll)
-	detailPane := paneStyle.
-		Width(rightWidth - 2).
-		Height(detailHeight).
+	detailContent := renderDetail(selected, rightContentW, detailInnerH, m.detailScroll)
+	detailPaneS := paneStyle
+	if m.focus == focusDetail {
+		detailPaneS = activePaneStyle
+	}
+	detailPane := detailPaneS.
+		Width(rightPaneW).
+		Height(detailInnerH).
+		Padding(0, 1).
 		Render(detailContent)
 
-	// Join right panes vertically, then combine with tree
+	// Combine right panes, then combine with tree
 	rightPanes := lipgloss.JoinVertical(lipgloss.Left, summaryPane, detailPane)
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, treePane, rightPanes)
 
@@ -462,7 +601,11 @@ func (m Model) View() string {
 		if m.searchQuery != "" {
 			bottom = helpStyle.Render(fmt.Sprintf("  /%s (%d matches)  n/N: next/prev  esc: clear  ?: help", m.searchQuery, len(m.searchHits)))
 		} else {
-			bottom = helpStyle.Render("  j/k: navigate  enter/l: expand  h: collapse  /: search  ?: help  q: quit")
+			nav := "j/k: navigate"
+			if m.focus == focusDetail {
+				nav = "j/k: scroll detail"
+			}
+			bottom = helpStyle.Render(fmt.Sprintf("  %s  tab: switch focus  enter/l: expand  h: collapse  /: search  ?: help  q: quit", nav))
 		}
 	}
 
@@ -504,9 +647,7 @@ func (m Model) renderTreePane(width, height int) string {
 	// Top scroll indicator
 	if hasAbove {
 		indicator := fmt.Sprintf("  ▲ %d more above", start)
-		if len(indicator) > width {
-			indicator = indicator[:width]
-		}
+		indicator = truncateWidth(indicator, width)
 		lines = append(lines, helpStyle.Render(indicator))
 	}
 
@@ -515,8 +656,9 @@ func (m Model) renderTreePane(width, height int) string {
 
 		switch {
 		case i == m.cursor:
-			if len(line) < width {
-				line = line + strings.Repeat(" ", width-len(line))
+			lineW := lipgloss.Width(line)
+			if lineW < width {
+				line = line + strings.Repeat(" ", width-lineW)
 			}
 			line = selectedStyle.Render(line)
 		case m.searchHits[i]:
@@ -532,9 +674,7 @@ func (m Model) renderTreePane(width, height int) string {
 	if hasBelow {
 		remaining := len(m.items) - end
 		indicator := fmt.Sprintf("  ▼ %d more below", remaining)
-		if len(indicator) > width {
-			indicator = indicator[:width]
-		}
+		indicator = truncateWidth(indicator, width)
 		lines = append(lines, helpStyle.Render(indicator))
 	}
 
@@ -545,12 +685,15 @@ func (m Model) renderHelpOverlay() string {
 	help := `╭─ Keybindings ───────────────────────╮
 
  Navigation
-   j / ↓       Move down
-   k / ↑       Move up
+   j / ↓       Move down (or scroll detail when focused)
+   k / ↑       Move up   (or scroll detail when focused)
    PgDn/Ctrl+f Page down
    PgUp/Ctrl+b Page up
    g           Go to top
    G           Go to bottom
+
+ Focus
+   Tab         Switch focus between Tree and Detail
 
  Tree
    Enter / l   Expand / Load children
@@ -567,6 +710,10 @@ func (m Model) renderHelpOverlay() string {
    Ctrl+d      Scroll detail down
    Ctrl+u      Scroll detail up
 
+ Mouse
+   Wheel       Scroll the focused pane
+   (Hold Shift to select text in most terminals)
+
  General
    ?           Show this help
    q / Ctrl+c  Quit
@@ -576,7 +723,7 @@ func (m Model) renderHelpOverlay() string {
 	lines := strings.Split(help, "\n")
 	var padded []string
 	for _, line := range lines {
-		pad := (m.width - len(line)) / 2
+		pad := (m.width - lipgloss.Width(line)) / 2
 		if pad < 0 {
 			pad = 0
 		}

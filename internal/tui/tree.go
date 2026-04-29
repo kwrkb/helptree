@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/kwrkb/helptree/internal/model"
 )
 
@@ -39,7 +40,7 @@ func treeLineWidth(item flatItem) int {
 			name = parts[len(parts)-1]
 		}
 	}
-	return indent + prefix + len(name)
+	return indent + prefix + lipgloss.Width(name)
 }
 
 // renderTreeLine renders a single tree line with indent and expand indicator.
@@ -53,6 +54,8 @@ func renderTreeLine(item flatItem, selected bool, width int) string {
 		} else {
 			prefix = "▶ "
 		}
+	} else if item.depth > 0 {
+		prefix = "○ "
 	}
 
 	name := item.node.Name
@@ -66,9 +69,17 @@ func renderTreeLine(item flatItem, selected bool, width int) string {
 
 	line := indent + prefix + name
 
-	// Truncate to width
-	if len(line) > width && width > 3 {
-		line = line[:width-3] + "..."
+	// Truncate to width using lipgloss.Width
+	if lipgloss.Width(line) > width && width > 3 {
+		// Simple truncation for now, could be improved to handle multi-byte better
+		runes := []rune(line)
+		for i := len(runes); i >= 0; i-- {
+			truncated := string(runes[:i]) + "..."
+			if lipgloss.Width(truncated) <= width {
+				line = truncated
+				break
+			}
+		}
 	}
 
 	return line
