@@ -198,34 +198,75 @@ func renderDetail(node *model.Node, width, height, scroll int) string {
 		lines = append([]string{indicator}, lines...)
 	}
 
-	// Bottom scroll indicator: trim to height and show remaining
-	if height > 0 && len(lines) > height {
+	// Bottom scroll indicator: trim to height and show remaining.
+	// Need height >= 2 to fit at least one content line plus the indicator.
+	if height >= 2 && len(lines) > height {
 		remaining := len(lines) - height + 1 // +1 for indicator line itself
 		lines = lines[:height-1]
 		indicator := fmt.Sprintf("  ↓ %d more lines below (Ctrl+D)", remaining)
 		lines = append(lines, indicator)
+	} else if height > 0 && len(lines) > height {
+		lines = lines[:height]
 	}
 
 	return strings.Join(lines, "\n")
 }
 
-// wrapText wraps text to the given width.
+// wrapText wraps text to the given width, taking multi-byte characters into account
+// and preserving existing newlines.
 func wrapText(text string, width int) string {
-	if width <= 0 || len(text) <= width {
-		return text
+	if width <= 0 {
+		return ""
 	}
 
-	var lines []string
-	for len(text) > width {
-		idx := strings.LastIndex(text[:width], " ")
-		if idx <= 0 {
-			idx = width
+	var finalLines []string
+	paragraphs := strings.Split(text, "\n")
+
+	for _, paragraph := range paragraphs {
+		if paragraph == "" {
+			finalLines = append(finalLines, "")
+			continue
 		}
-		lines = append(lines, text[:idx])
-		text = strings.TrimSpace(text[idx:])
+
+		var currentLine strings.Builder
+		currentWidth := 0
+
+		words := strings.Fields(paragraph)
+		for _, word := range words {
+			wordW := lipgloss.Width(word)
+			if currentWidth+wordW+1 > width && currentWidth > 0 {
+				finalLines = append(finalLines, currentLine.String())
+				currentLine.Reset()
+				currentWidth = 0
+			}
+
+			if currentWidth > 0 {
+				currentLine.WriteString(" ")
+				currentWidth++
+			}
+
+			if wordW > width {
+				runes := []rune(word)
+				for _, r := range runes {
+					rw := lipgloss.Width(string(r))
+					if currentWidth+rw > width && currentWidth > 0 {
+						finalLines = append(finalLines, currentLine.String())
+						currentLine.Reset()
+						currentWidth = 0
+					}
+					currentLine.WriteRune(r)
+					currentWidth += rw
+				}
+			} else {
+				currentLine.WriteString(word)
+				currentWidth += wordW
+			}
+		}
+
+		if currentLine.Len() > 0 {
+			finalLines = append(finalLines, currentLine.String())
+		}
 	}
-	if text != "" {
-		lines = append(lines, text)
-	}
-	return strings.Join(lines, "\n")
+
+	return strings.Join(finalLines, "\n")
 }

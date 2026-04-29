@@ -464,32 +464,36 @@ func (m Model) View() string {
 		return m.renderHelpOverlay()
 	}
 
-	// Tree width from cached content width (updated on reflatten)
-	treeWidth := m.cachedTreeW + 4 // padding + border
+	// Outer layout (border-inclusive sizes).
+	// title (1) + panes (panesHeight) + bottom (1) ≈ m.height; the extra
+	// margin gives bubbletea breathing room at the bottom of the screen.
+	panesHeight := m.height - 4
+	if panesHeight < 4 {
+		panesHeight = 4
+	}
+
+	// Tree pane outer width (border included). Cached content width + 2 borders.
+	treeWidth := m.cachedTreeW + 2
 	if treeWidth < 20 {
 		treeWidth = 20
 	}
-	// Cap at 50% of terminal width so right panes have enough space
 	if treeWidth > m.width/2 {
 		treeWidth = m.width / 2
 	}
-	rightWidth := m.width - treeWidth - 4
-	contentHeight := m.height - 4
+	rightWidth := m.width - treeWidth
 
-	if contentHeight < 1 {
-		contentHeight = 1
-	}
-
-	// Summary pane height: ~20% of content, min 4
-	summaryHeight := contentHeight / 5
+	// Summary pane outer height: ~1/3 of pane area, min 4.
+	summaryHeight := panesHeight / 3
 	if summaryHeight < 4 {
 		summaryHeight = 4
 	}
-	// Detail pane gets the rest (minus border gap)
-	detailHeight := contentHeight - summaryHeight - 2
-	if detailHeight < 3 {
-		detailHeight = 3
+	if summaryHeight > panesHeight-3 {
+		summaryHeight = panesHeight - 3
 	}
+	if summaryHeight < 3 {
+		summaryHeight = 3
+	}
+	detailHeight := panesHeight - summaryHeight
 
 	// Title
 	titleText := fmt.Sprintf(" helptree: %s ", m.rootCmd)
@@ -498,42 +502,68 @@ func (m Model) View() string {
 	}
 	title := titleStyle.Render(titleText)
 
-	// Tree pane (left, full height)
-	treeContent := m.renderTreePane(treeWidth-4, contentHeight)
+	// Tree pane (left). Inner = outer - border(2). No padding.
+	treeInnerW := treeWidth - 2
+	treeInnerH := panesHeight - 2
+	treeContent := m.renderTreePane(treeInnerW, treeInnerH)
 	treePaneS := paneStyle
 	if m.focus == focusTree {
 		treePaneS = activePaneStyle
 	}
 	treePane := treePaneS.
-		Width(treeWidth - 2).
-		Height(contentHeight).
+		Width(treeInnerW).
+		Height(treeInnerH).
 		Render(treeContent)
 
-	// Right side: summary + detail
+	// Selected node for right panes
 	var selected *model.Node
 	if m.cursor < len(m.items) {
 		selected = m.items[m.cursor].node
 	}
 
+	// Right panes: lipgloss.Width(w) sets the area inside the border
+	// (padding is consumed within w). So:
+	//   outer width  = Width(w) + border(2)        → w = rightWidth - 2
+	//   content width = w - padding(2)              = rightWidth - 4
+	//   outer height = Height(h) + border(2)        → h = paneH - 2
+	rightPaneW := rightWidth - 2
+	if rightPaneW < 1 {
+		rightPaneW = 1
+	}
+	rightContentW := rightWidth - 4
+	if rightContentW < 1 {
+		rightContentW = 1
+	}
+	summaryInnerH := summaryHeight - 2
+	if summaryInnerH < 1 {
+		summaryInnerH = 1
+	}
+	detailInnerH := detailHeight - 2
+	if detailInnerH < 1 {
+		detailInnerH = 1
+	}
+
 	// Summary pane (top-right)
-	summaryContent := renderSummary(selected, rightWidth-4)
+	summaryContent := renderSummary(selected, rightContentW)
 	summaryPane := paneStyle.
-		Width(rightWidth - 2).
-		Height(summaryHeight).
+		Width(rightPaneW).
+		Height(summaryInnerH).
+		Padding(0, 1).
 		Render(summaryContent)
 
 	// Detail pane (bottom-right)
-	detailContent := renderDetail(selected, rightWidth-4, detailHeight, m.detailScroll)
+	detailContent := renderDetail(selected, rightContentW, detailInnerH, m.detailScroll)
 	detailPaneS := paneStyle
 	if m.focus == focusDetail {
 		detailPaneS = activePaneStyle
 	}
 	detailPane := detailPaneS.
-		Width(rightWidth - 2).
-		Height(detailHeight).
+		Width(rightPaneW).
+		Height(detailInnerH).
+		Padding(0, 1).
 		Render(detailContent)
 
-	// Join right panes vertically, then combine with tree
+	// Combine right panes, then combine with tree
 	rightPanes := lipgloss.JoinVertical(lipgloss.Left, summaryPane, detailPane)
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, treePane, rightPanes)
 
@@ -592,9 +622,7 @@ func (m Model) renderTreePane(width, height int) string {
 	// Top scroll indicator
 	if hasAbove {
 		indicator := fmt.Sprintf("  ▲ %d more above", start)
-		if len(indicator) > width {
-			indicator = indicator[:width]
-		}
+		indicator = truncateWidth(indicator, width)
 		lines = append(lines, helpStyle.Render(indicator))
 	}
 
@@ -603,8 +631,9 @@ func (m Model) renderTreePane(width, height int) string {
 
 		switch {
 		case i == m.cursor:
-			if len(line) < width {
-				line = line + strings.Repeat(" ", width-len(line))
+			lineW := lipgloss.Width(line)
+			if lineW < width {
+				line = line + strings.Repeat(" ", width-lineW)
 			}
 			line = selectedStyle.Render(line)
 		case m.searchHits[i]:
@@ -620,9 +649,7 @@ func (m Model) renderTreePane(width, height int) string {
 	if hasBelow {
 		remaining := len(m.items) - end
 		indicator := fmt.Sprintf("  ▼ %d more below", remaining)
-		if len(indicator) > width {
-			indicator = indicator[:width]
-		}
+		indicator = truncateWidth(indicator, width)
 		lines = append(lines, helpStyle.Render(indicator))
 	}
 
@@ -671,7 +698,7 @@ func (m Model) renderHelpOverlay() string {
 	lines := strings.Split(help, "\n")
 	var padded []string
 	for _, line := range lines {
-		pad := (m.width - len(line)) / 2
+		pad := (m.width - lipgloss.Width(line)) / 2
 		if pad < 0 {
 			pad = 0
 		}
