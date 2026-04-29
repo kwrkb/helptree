@@ -120,7 +120,7 @@ func renderSummary(node *model.Node, width, height int) string {
 		return ""
 	}
 
-	lines := strings.Split(content, "\n")
+	lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
 	if len(lines) > height {
 		lines = lines[:height]
 		if height > 1 {

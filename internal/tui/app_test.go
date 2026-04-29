@@ -64,3 +64,22 @@ func TestViewFitsCommonTerminalSizes(t *testing.T) {
 		assertViewFits(t, m.View(), size.width, size.height)
 	}
 }
+
+// TestRenderSummaryExactFitNoTruncation guards the regression where the
+// trailing newline appended by strings.Builder caused strings.Split to add an
+// empty element, making len(lines) exceed height by one and replacing the last
+// real line with "...". The summary content here renders to exactly 6 lines
+// after trimming the trailing newline.
+func TestRenderSummaryExactFitNoTruncation(t *testing.T) {
+	node := &model.Node{
+		Name:        "tool",
+		Description: "short description",
+		Usage:       "tool [args]",
+		Loaded:      true,
+	}
+	const height = 6
+	out := renderSummary(node, 80, height)
+	if strings.Contains(ansi.Strip(out), "...") {
+		t.Fatalf("renderSummary truncated content that fits exactly in height=%d:\n%s", height, out)
+	}
+}
