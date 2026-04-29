@@ -198,3 +198,26 @@
 
 - Claude Code のサンドボックスが `TMPDIR` を書き換えるため、Go の work dir (`/tmp/claude`) が見つからずビルドが失敗する
 - **ルール**: Go テスト実行時にサンドボックスが干渉する場合は `dangerouslyDisableSandbox: true` で実行する。または `/sandbox` でサンドボックスを無効化する
+
+## 2026-04-30: TUI 小端末オーバーフロー対策
+
+### タイトル・ボトムバーは端末幅で必ずクリップする
+
+- `titleStyle.Render(text)` / `helpStyle.Render(text)` は端末幅を超えても折り返すだけで、`View()` の出力行数が想定（title 1 行 + panes + bottom 1 行）を超え、Bubble Tea が画面下に書き殴る挙動になる
+- **ルール**: 1 行で収めたいテキストは `Render` の前に `truncateWidth(text, m.width)` を必ず通す。スタイルが border/padding を持たない（Bold/Foreground のみ）ことが前提なので、padding 付きスタイルに変える際は budget 計算を見直すこと
+
+### サマリーペインの高さは内容で溢れさせない
+
+- `paneStyle.Width(w).Height(h).Render(content)` は内容が `h` を超えると下方向に伸びてしまい、JoinVertical でディテールペインが画面外に押し出される
+- **ルール**: ペイン内に可変長コンテンツを渡す関数（`renderSummary` 等）は height 引数を受け、超過時は末尾を `"..."` インジケータで置換して切り詰める。`renderDetail` のスクロール表示と挙動を揃える
+
+### `assertViewFits` パターン: View() の幅・高さ回帰を防ぐ
+
+- TUI レイアウト変更は目視確認だけでは小端末ケース（40x12 等）の崩れを見落とす
+- **ルール**: `ansi.Strip` で ANSI を除去 → `strings.Split("\n")` で行分割 → `lipgloss.Width(line) <= width` と `len(lines) <= height` を検証するヘルパー (`assertViewFits`) を用意し、`{80x24, 60x18, 40x12}` の最低 3 サイズでテーブル駆動テストする
+- 拡張余地: `focusDetail`、`modeSearch`（長いクエリ）、`modeHelp` オーバーレイ、`m.loading == true` も別ケースとして追加すべき（特にヘルプオーバーレイは固定文字列が幅 40 を超える）
+
+### スタイルを跨ぐ複数行テキストの split は注意
+
+- `descStyle.Render(wrapText(...))` で複数行を一括スタイル適用したものを `\n` で split すると、lipgloss のバージョン次第で ANSI リセットが行頭/行末で揃わず色漏れが起きる場合がある
+- **ルール**: 行ごとに切り詰める可能性がある箇所では、wrap 後に各行を個別に `Render` する方が堅牢。`b.String()` 末尾の余分な改行は `strings.TrimRight(content, "\n")` で除去してから split すると行数判定がぶれない
