@@ -25,8 +25,8 @@ main.go     — エントリポイント
 
 ## Conventions
 
-- パーサーのテストは固定文字列のヘルプ出力を使う（実コマンド依存を避ける）
-- ランナーのテストのみ `go --help` を実行する（Go環境なら必ず存在）
+- パーサーの単体テストは固定文字列のヘルプ出力を使う（実コマンド依存を避ける）
+- 実コマンドを叩くのは runner のテスト（`go --help`）と parser の `smoke_test.go` / `discover_test.go`（PATH に無いコマンドは Skip、discover は `-short` で Skip）
 - TUI のレイアウト計算は `app.go` の `View()` に集約
 - Bubble Tea の `Update`/`View`/`Init` は value receiver（フレームワーク要件）
 
