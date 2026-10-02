@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/kwrkb/helptree/internal/model"
 )
 
@@ -21,11 +23,11 @@ var (
 	embeddedUsageRe = regexp.MustCompile(`(?i)\busage(?:\s+is)?[:\s]\s*(.*)`)
 
 	// BSD compact usage patterns
-	compactOptsRe        = regexp.MustCompile(`\[-([@A-Za-z0-9%,]+)\]`)
-	pipeSepOptsRe        = regexp.MustCompile(`\[((?:-[A-Za-z]\s*\|\s*)+(?:-[A-Za-z]))\]`)
-	pipeSepOptsArgRe     = regexp.MustCompile(`\[((?:-[A-Za-z]\s+\w+\s*\|\s*)+(?:-[A-Za-z](?:\s+\w+)?))\]`)
-	bracketShortArgRe    = regexp.MustCompile(`\[-([A-Za-z])\s+<?(\w[\w-]*)>?\]`)
-	bracketShortOptArgRe = regexp.MustCompile(`\[-([A-Za-z])\[(\w+)\]\]`)
+	compactOptsRe         = regexp.MustCompile(`\[-([@A-Za-z0-9%,]+)\]`)
+	pipeSepOptsRe         = regexp.MustCompile(`\[((?:-[A-Za-z]\s*\|\s*)+(?:-[A-Za-z]))\]`)
+	pipeSepOptsArgRe      = regexp.MustCompile(`\[((?:-[A-Za-z]\s+\w+\s*\|\s*)+(?:-[A-Za-z](?:\s+\w+)?))\]`)
+	bracketShortArgRe     = regexp.MustCompile(`\[-([A-Za-z])\s+<?(\w[\w-]*)>?\]`)
+	bracketShortOptArgRe  = regexp.MustCompile(`\[-([A-Za-z])\[(\w+)\]\]`)
 	bracketLongArgRe      = regexp.MustCompile(`\[--([\w-]+)=([\w]+)\]`)
 	bracketLongSpaceArgRe = regexp.MustCompile(`\[--([\w-]+)\s+<?(\w[\w-]*)>?\]`)
 	bracketLongRe         = regexp.MustCompile(`\[--([\w-]+)\]`)
@@ -53,6 +55,10 @@ func Parse(name, helpText string) *model.Node {
 	if len(helpText) > maxHelpSize {
 		helpText = helpText[:maxHelpSize]
 	}
+
+	// Some CLIs (e.g. systemctl) emit ANSI escapes even when stdout is not a
+	// TTY, which would otherwise break section header detection.
+	helpText = ansi.Strip(helpText)
 
 	lines := strings.Split(helpText, "\n")
 	if len(lines) == 0 {

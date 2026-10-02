@@ -190,6 +190,30 @@ Available Commands:
 	}
 }
 
+func TestParseStripsANSI(t *testing.T) {
+	// systemctl style: section headers prefixed with an ANSI reset sequence
+	help := "systemctl [OPTIONS...] COMMAND ...\n\n" +
+		"\x1b[0mUnit Commands:\n" +
+		"  start UNIT...                       Start (activate) one or more units\n" +
+		"  stop UNIT...                        Stop (deactivate) one or more units\n\n" +
+		"\x1b[0mOptions:\n" +
+		"  -h --help              Show this help\n" +
+		"     --version           Show package version\n" +
+		"  -H --host=[USER@]HOST  Operate on remote host\n"
+	node := Parse("systemctl", help)
+	if len(node.Children) != 2 {
+		t.Errorf("children: got %d, want 2", len(node.Children))
+	}
+	if len(node.Options) != 3 {
+		t.Errorf("options: got %d, want 3", len(node.Options))
+	}
+	for _, o := range node.Options {
+		if strings.Contains(o.Description, "\x1b") {
+			t.Errorf("option %s description contains escape: %q", o.FullFlag(), o.Description)
+		}
+	}
+}
+
 func TestParseUsageInline(t *testing.T) {
 	help := `Usage: simple-tool [options] <file>
 
